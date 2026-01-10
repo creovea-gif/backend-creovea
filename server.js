@@ -1,6 +1,7 @@
 // server.js
 const express = require('express');
 const multer = require('multer');
+const cors = require('cors');
 const { v2: cloudinary } = require('cloudinary');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const admin = require('firebase-admin');
@@ -9,9 +10,25 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 /* =========================
+   CORS (مهم جدًا)
+========================= */
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST'],
+}));
+
+/* =========================
+   Body Parsers
+========================= */
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+/* =========================
    Firebase Admin
 ========================= */
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+const serviceAccount = JSON.parse(
+  process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -29,17 +46,15 @@ cloudinary.config({
 });
 
 /* =========================
-   Multer + Cloudinary
+   Multer + Cloudinary Storage
 ========================= */
 const storage = new CloudinaryStorage({
   cloudinary,
-  params: async (req, file) => {
-    return {
-      folder: 'creovia_products',
-      resource_type: 'auto',
-      public_id: `${Date.now()}-${file.originalname}`,
-    };
-  },
+  params: async (req, file) => ({
+    folder: 'creovia_products',
+    resource_type: 'auto',
+    public_id: `${Date.now()}-${file.originalname}`,
+  }),
 });
 
 const upload = multer({
@@ -48,49 +63,79 @@ const upload = multer({
 });
 
 /* =========================
-   Middlewares
+   Upload Product
 ========================= */
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.post(
+  '/upload',
+  upload.fields([
+    { name: 'files', maxCount: 10 },
+    { name: 'preview', maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const { name, desc, type, price } = req.body;
+
+      if (!name || !desc || !type || !price) {
+        return res.status(400).json({
+          message: 'Missing required fields',
+        });
+      }
+
+      if (!req.files?.files || !req.files?.preview) {
+        return res.status(400).json({
+          message: 'Files or preview image missing',
+        });
+      }
+
+      const fileUrls = req.files.files.map(f => f.path);
+      const previewImage = req.files.preview[0].path;
+
+      const productData = {
+        name,
+        description: desc,
+        type,                         // ebook / template / logo / magazine
+        price: `$${price}`,           // السعر بالدولار
+        previewImage,                 // صورة المعاينة
+        files: fileUrls,              // روابط الملفات
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      await db.collection('products').add(productData);
+
+      res.json({
+        message: 'Product uploaded successfully!',
+        product: productData,
+      });
+
+    } catch (error) {
+      console.error('Upload error:', error);
+      res.status(500).json({
+        message: 'Upload failed',
+        error: error.message,
+      });
+    }
+  }
+);
 
 /* =========================
-   Upload Product Route
+   Get Products (للواجهة)
 ========================= */
-app.post('/upload', upload.array('files', 10), async (req, res) => {
+app.get('/products', async (req, res) => {
   try {
-    const { name, desc, type, price } = req.body;
+    const snapshot = await db
+      .collection('products')
+      .orderBy('createdAt', 'desc')
+      .get();
 
-    if (!name || !desc || !type || !price) {
-      return res.status(400).json({ message: 'Missing required fields' });
-    }
+    const products = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
 
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ message: 'No files uploaded' });
-    }
-
-    const fileUrls = req.files.map(file => file.path);
-
-    const productData = {
-      name,
-      description: desc,
-      type,                       // ebook / template / logo / magazine
-      price: Number(price),       // السعر
-      files: fileUrls,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    await db.collection('products').add(productData);
-
-    res.json({
-      message: 'Product uploaded successfully!',
-      product: productData,
-    });
-
-  } catch (error) {
-    console.error('Upload error:', error);
+    res.json(products);
+  } catch (err) {
     res.status(500).json({
-      message: 'Upload failed',
-      error: error.message,
+      message: 'Failed to fetch products',
     });
   }
 });
@@ -108,3 +153,5 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+
