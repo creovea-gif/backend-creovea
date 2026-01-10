@@ -10,7 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 /* =========================
-   CORS (مهم جدًا)
+   CORS
 ========================= */
 app.use(cors({
   origin: '*',
@@ -68,8 +68,8 @@ const upload = multer({
 app.post(
   '/upload',
   upload.fields([
-    { name: 'files', maxCount: 10 },
-    { name: 'preview', maxCount: 1 },
+    { name: 'file', maxCount: 1 },     // الملف الأساسي
+    { name: 'preview', maxCount: 1 },  // صورة المعاينة
   ]),
   async (req, res) => {
     try {
@@ -81,22 +81,22 @@ app.post(
         });
       }
 
-      if (!req.files?.files || !req.files?.preview) {
+      if (!req.files?.file || !req.files?.preview) {
         return res.status(400).json({
-          message: 'Files or preview image missing',
+          message: 'File or preview image missing',
         });
       }
 
-      const fileUrls = req.files.files.map(f => f.path);
+      const fileUrl = req.files.file[0].path;
       const previewImage = req.files.preview[0].path;
 
       const productData = {
         name,
         description: desc,
-        type,                         // ebook / template / logo / magazine
-        price: `$${price}`,           // السعر بالدولار
-        previewImage,                 // صورة المعاينة
-        files: fileUrls,              // روابط الملفات
+        type,                 // ebook / template / magazine / logo
+        price: Number(price), // رقم فقط (أفضل)
+        previewImage,
+        fileUrl,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
@@ -118,7 +118,7 @@ app.post(
 );
 
 /* =========================
-   Get Products (للواجهة)
+   Get Products
 ========================= */
 app.get('/products', async (req, res) => {
   try {
@@ -133,7 +133,7 @@ app.get('/products', async (req, res) => {
     }));
 
     res.json(products);
-  } catch (err) {
+  } catch (error) {
     res.status(500).json({
       message: 'Failed to fetch products',
     });
@@ -153,5 +153,3 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-
