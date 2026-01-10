@@ -1,0 +1,14 @@
+{
+  "name": "creovia-marketplace",
+  "version": "1.0.0",
+  "description": "Digital Marketplace for ebooks, templates, logos, and magazines",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "creovea-gif",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
