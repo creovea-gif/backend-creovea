@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
@@ -29,11 +28,9 @@ app.use(express.urlencoded({ extended: true }));
 const serviceAccount = JSON.parse(
   process.env.FIREBASE_SERVICE_ACCOUNT_JSON
 );
-
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
-
 const db = admin.firestore();
 
 /* =========================
@@ -68,8 +65,8 @@ const upload = multer({
 app.post(
   '/upload',
   upload.fields([
-    { name: 'file', maxCount: 1 },     // الملف الأساسي
-    { name: 'preview', maxCount: 1 },  // صورة المعاينة
+    { name: 'file', maxCount: 1 },
+    { name: 'preview', maxCount: 1 },
   ]),
   async (req, res) => {
     try {
@@ -93,20 +90,20 @@ app.post(
       const productData = {
         name,
         description: desc,
-        type,                 // ebook / template / magazine / logo
-        price: Number(price), // رقم فقط (أفضل)
+        type,
+        price: Number(price),
         previewImage,
         fileUrl,
+        salesCount: 0,               // ← إضافة حقل عدد المبيعات (يبدأ بـ 0)
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
-      await db.collection('products').add(productData);
+      const docRef = await db.collection('products').add(productData);
 
       res.json({
         message: 'Product uploaded successfully!',
-        product: productData,
+        product: { id: docRef.id, ...productData },
       });
-
     } catch (error) {
       console.error('Upload error:', error);
       res.status(500).json({
@@ -118,7 +115,7 @@ app.post(
 );
 
 /* =========================
-   Get Products
+   Get All Products
 ========================= */
 app.get('/products', async (req, res) => {
   try {
@@ -134,9 +131,40 @@ app.get('/products', async (req, res) => {
 
     res.json(products);
   } catch (error) {
+    console.error('Fetch products error:', error);
     res.status(500).json({
       message: 'Failed to fetch products',
     });
+  }
+});
+
+/* =========================
+   Register Download / Increase Sales Count
+========================= */
+app.get('/download/:productId', async (req, res) => {
+  const { productId } = req.params;
+
+  try {
+    const productRef = db.collection('products').doc(productId);
+    const productDoc = await productRef.get();
+
+    if (!productDoc.exists) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    // زيادة عدد المبيعات بمقدار 1
+    await productRef.update({
+      salesCount: admin.firestore.FieldValue.increment(1)
+    });
+
+    // إعادة توجيه المستخدم لتحميل الملف الفعلي (من Cloudinary)
+    const productData = productDoc.data();
+    const downloadUrl = productData.fileUrl.replace('/upload/', '/upload/fl_attachment/');
+
+    res.redirect(downloadUrl);
+  } catch (error) {
+    console.error('Download tracking error:', error);
+    res.status(500).json({ message: 'Server error during download tracking' });
   }
 });
 
