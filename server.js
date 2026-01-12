@@ -179,40 +179,9 @@ app.get('/', (req, res) => {
    Start Server
 ========================= */
 
-/* ========================= Record Payment & Generate Download Link ========================= */
-app.post('/record-payment', async (req, res) => {
-  const { productId, orderId, payerEmail, amount } = req.body;
-
-  try {
-    const productRef = db.collection('products').doc(productId);
-    const productDoc = await productRef.get();
-
-    if (!productDoc.exists) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
-
-    const productData = productDoc.data();
-
-    // زيادة عدد المبيعات
-    await productRef.update({
-      salesCount: admin.firestore.FieldValue.increment(1)
-    });
-
-    // توليد رابط تحميل (مؤقت - يمكن تخصيصه)
-    const downloadUrl = productData.fileUrl.replace('/upload/', '/upload/fl_attachment/');
-
-    // هنا يمكن إضافة Payout لاحقاً للبائع (60%)
-    // مثال: await sendPayoutToSeller(productData.sellerEmail, amount * 0.6);
-
-    res.json({ success: true, downloadUrl });
-  } catch (error) {
-    console.error('Payment recording error:', error);
-    res.status(500).json({ message: 'Error recording payment' });
-  }
-});
-
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
