@@ -94,7 +94,7 @@ app.post(
         price: Number(price),
         previewImage,
         fileUrl,
-        salesCount: 0,               // ← إضافة حقل عدد المبيعات (يبدأ بـ 0)
+        salesCount: 0,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
@@ -139,7 +139,41 @@ app.get('/products', async (req, res) => {
 });
 
 /* =========================
-   Register Download / Increase Sales Count
+   Register Payment & Generate Download Link
+========================= */
+app.post('/record-payment', async (req, res) => {
+  const { productId, orderId, payerEmail, amount } = req.body;
+
+  try {
+    const productRef = db.collection('products').doc(productId);
+    const productDoc = await productRef.get();
+
+    if (!productDoc.exists) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    const productData = productDoc.data();
+
+    // زيادة عدد المبيعات
+    await productRef.update({
+      salesCount: admin.firestore.FieldValue.increment(1)
+    });
+
+    // توليد رابط تحميل مؤقت (من Cloudinary مع fl_attachment للتحميل المباشر)
+    const downloadUrl = productData.fileUrl.replace('/upload/', '/upload/fl_attachment/');
+
+    // هنا يمكن إضافة تسجيل عملية الشراء في مجموعة purchases (اختياري)
+    // await db.collection('purchases').add({ ... });
+
+    res.json({ success: true, downloadUrl });
+  } catch (error) {
+    console.error('Payment recording error:', error);
+    res.status(500).json({ message: 'Error recording payment' });
+  }
+});
+
+/* =========================
+   Register Download / Increase Sales Count (القديم - يمكن إزالته لاحقاً إذا أردت حماية كاملة)
 ========================= */
 app.get('/download/:productId', async (req, res) => {
   const { productId } = req.params;
@@ -152,12 +186,11 @@ app.get('/download/:productId', async (req, res) => {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    // زيادة عدد المبيعات بمقدار 1
+    // زيادة عدد المبيعات (يمكن تعطيل هذا إذا أردت أن الدفع فقط يزيد المبيعات)
     await productRef.update({
       salesCount: admin.firestore.FieldValue.increment(1)
     });
 
-    // إعادة توجيه المستخدم لتحميل الملف الفعلي (من Cloudinary)
     const productData = productDoc.data();
     const downloadUrl = productData.fileUrl.replace('/upload/', '/upload/fl_attachment/');
 
@@ -178,10 +211,6 @@ app.get('/', (req, res) => {
 /* =========================
    Start Server
 ========================= */
-
-
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-
