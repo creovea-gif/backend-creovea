@@ -159,11 +159,8 @@ app.post('/record-payment', async (req, res) => {
       salesCount: admin.firestore.FieldValue.increment(1)
     });
 
-    // توليد رابط تحميل مؤقت (من Cloudinary مع fl_attachment للتحميل المباشر)
+    // توليد رابط تحميل (من Cloudinary مع fl_attachment للتحميل المباشر)
     const downloadUrl = productData.fileUrl.replace('/upload/', '/upload/fl_attachment/');
-
-    // هنا يمكن إضافة تسجيل عملية الشراء في مجموعة purchases (اختياري)
-    // await db.collection('purchases').add({ ... });
 
     res.json({ success: true, downloadUrl });
   } catch (error) {
