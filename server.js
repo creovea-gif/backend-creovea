@@ -115,6 +115,7 @@ app.post(
   }
 );
 
+
 /* =========================
    Get All Products
 ========================= */
@@ -122,10 +123,7 @@ app.get('/products', async (req, res) => {
   try {
     const snapshot = await db
       .collection('products')
-      app.get('/products', async (req, res) => {
-  try {
-    const snapshot = await db
-      .collection('products')
+      .orderBy('createdAt', 'desc') // ترتيب من الأحدث
       .get();
 
     const products = snapshot.docs.map(doc => ({
@@ -142,21 +140,6 @@ app.get('/products', async (req, res) => {
   }
 });
 
-      .get();
-
-    const products = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-
-    res.json(products);
-  } catch (error) {
-    console.error('Fetch products error:', error);
-    res.status(500).json({
-      message: 'Failed to fetch products',
-    });
-  }
-});
 
 /* =========================
    Register Payment & Generate Download Link
@@ -267,6 +250,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
