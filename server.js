@@ -4,6 +4,7 @@ const cors = require('cors');
 const { v2: cloudinary } = require('cloudinary');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const admin = require('firebase-admin');
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -142,9 +143,41 @@ app.get('/products', async (req, res) => {
    Register Payment & Generate Download Link
 ========================= */
 app.post('/record-payment', async (req, res) => {
-  const { productId, orderId, payerEmail, amount } = req.body;
+  const { productId, orderId } = req.body;
 
   try {
+    // 1️⃣ الحصول على Access Token من PayPal
+    const tokenRes = await axios.post(
+      `${process.env.PAYPAL_API}/v1/oauth2/token`,
+      'grant_type=client_credentials',
+      {
+        auth: {
+          username: process.env.PAYPAL_CLIENT_ID,
+          password: process.env.PAYPAL_SECRET
+        },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      }
+    );
+
+    const accessToken = tokenRes.data.access_token;
+
+    // 2️⃣ التحقق من الطلب
+    const orderRes = await axios.get(
+      `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      }
+    );
+
+    if (orderRes.data.status !== 'COMPLETED') {
+      return res.status(400).json({ message: 'Payment not completed' });
+    }
+
+    // 3️⃣ جلب المنتج
     const productRef = db.collection('products').doc(productId);
     const productDoc = await productRef.get();
 
@@ -152,20 +185,23 @@ app.post('/record-payment', async (req, res) => {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    const productData = productDoc.data();
-
-    // زيادة عدد المبيعات
+    // 4️⃣ زيادة المبيعات
     await productRef.update({
       salesCount: admin.firestore.FieldValue.increment(1)
     });
 
-    // توليد رابط تحميل (من Cloudinary مع fl_attachment للتحميل المباشر)
-    const downloadUrl = productData.fileUrl.replace('/upload/', '/upload/fl_attachment/');
+    // 5️⃣ رابط التحميل
+    const productData = productDoc.data();
+    const downloadUrl = productData.fileUrl.replace(
+      '/upload/',
+      '/upload/fl_attachment/'
+    );
 
     res.json({ success: true, downloadUrl });
+
   } catch (error) {
-    console.error('Payment recording error:', error);
-    res.status(500).json({ message: 'Error recording payment' });
+    console.error('PayPal verify error:', error.response?.data || error.message);
+    res.status(500).json({ message: 'Payment verification failed' });
   }
 });
 
@@ -211,3 +247,4 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
