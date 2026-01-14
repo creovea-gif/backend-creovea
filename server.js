@@ -173,7 +173,8 @@ app.post('/record-payment', async (req, res) => {
       }
     );
 
-    if (orderRes.data.status !== 'COMPLETED') {
+  if (!['COMPLETED', 'APPROVED'].includes(orderRes.data.status)) {
+
       return res.status(400).json({ message: 'Payment not completed' });
     }
 
@@ -247,4 +248,5 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
