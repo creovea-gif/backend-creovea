@@ -195,10 +195,8 @@ app.post('/record-payment', async (req, res) => {
 
     // 5️⃣ رابط التحميل
     const productData = productDoc.data();
-    const downloadUrl = productData.fileUrl.replace(
-      '/upload/',
-      '/upload/fl_attachment/'
-    );
+   const downloadUrl = productData.fileUrl;
+
 
     res.json({ success: true, downloadUrl });
 
@@ -228,7 +226,8 @@ app.get('/download/:productId', async (req, res) => {
     });
 
     const productData = productDoc.data();
-    const downloadUrl = productData.fileUrl.replace('/upload/', '/upload/fl_attachment/');
+    const downloadUrl = productData.fileUrl;
+
 
     res.redirect(downloadUrl);
   } catch (error) {
@@ -250,6 +249,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
