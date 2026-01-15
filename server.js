@@ -175,10 +175,27 @@ app.post('/record-payment', async (req, res) => {
       }
     );
 
-  if (!['COMPLETED', 'APPROVED'].includes(orderRes.data.status)) {
+// ⚠️ إذا لم يكن مكتمل، نقوم بالـ CAPTURE
+let finalStatus = orderRes.data.status;
 
-      return res.status(400).json({ message: 'Payment not completed' });
+if (finalStatus === 'APPROVED') {
+  const captureRes = await axios.post(
+    `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}/capture`,
+    {},
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
     }
+  );
+
+  finalStatus = captureRes.data.status;
+}
+
+if (finalStatus !== 'COMPLETED') {
+  return res.status(400).json({ message: 'Payment not completed' });
+}
 
     // 3️⃣ جلب المنتج
     const productRef = db.collection('products').doc(productId);
@@ -249,6 +266,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
