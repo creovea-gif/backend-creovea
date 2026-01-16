@@ -142,6 +142,83 @@ app.get('/products', async (req, res) => {
   }
 });
 
+/* =========================
+   Seller Dashboard Data
+========================= */
+app.get('/seller-dashboard', async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email) {
+      return res.status(400).json({ message: 'Email required' });
+    }
+
+    const snapshot = await db
+      .collection('products')
+      .where('seller', '==', email)
+      .get();
+
+    let productsCount = snapshot.size;
+    let totalDownloads = 0;
+    let totalSales = 0;
+
+    const products = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const sales = data.salesCount || 0;
+
+      totalDownloads += sales;
+      totalSales += sales * (data.price || 0);
+
+      products.push({
+        name: data.name,
+        sales
+      });
+    });
+
+    const sellerEarnings = totalSales * 0.7; // 70%
+
+    res.json({
+      productsCount,
+      totalDownloads,
+      totalSales,
+      sellerEarnings,
+      products
+    });
+
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    res.status(500).json({ message: 'Dashboard fetch failed' });
+  }
+});
+
+/* =========================
+   Request Payout
+========================= */
+app.post('/request-payout', async (req, res) => {
+  try {
+    const { sellerEmail, amount } = req.body;
+
+    if (!sellerEmail || !amount) {
+      return res.status(400).json({ message: 'Missing data' });
+    }
+
+    await db.collection('payout_requests').add({
+      sellerEmail,
+      amount,
+      status: 'pending',
+      requestedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Payout error:', error);
+    res.status(500).json({ message: 'Payout request failed' });
+  }
+});
+
 
 /* =========================
    Register Payment & Generate Download Link
@@ -281,6 +358,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
