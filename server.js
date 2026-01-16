@@ -216,14 +216,16 @@ if (finalStatus !== 'COMPLETED') {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    // 4️⃣ زيادة المبيعات
-    await productRef.update({
-      salesCount: admin.firestore.FieldValue.increment(1)
-    });
+   // 4️⃣ زيادة المبيعات
+await productRef.update({
+  salesCount: admin.firestore.FieldValue.increment(1)
+});
 
-    // 5️⃣ رابط التحميل
-    const productData = productDoc.data();
-   const downloadUrl = productData.fileUrl;
+// جلب بيانات المنتج بعد التحديث (مهم!)
+const updatedDoc = await productRef.get();
+const productData = updatedDoc.data();
+const downloadUrl = productData.fileUrl;
+
 
 
     res.json({ success: true, downloadUrl });
@@ -277,6 +279,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
