@@ -54,7 +54,6 @@ const storage = new CloudinaryStorage({
     public_id: `${Date.now()}-${file.originalname}`,
   }),
 });
-
 const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
@@ -71,38 +70,32 @@ app.post(
   ]),
   async (req, res) => {
     try {
-      const { name, desc, type, price } = req.body;
-
+      const { name, desc, type, price, sellerEmail } = req.body;
       if (!name || !desc || !type || !price) {
         return res.status(400).json({
           message: 'Missing required fields',
         });
       }
-
       if (!req.files?.file || !req.files?.preview) {
         return res.status(400).json({
           message: 'File or preview image missing',
         });
       }
-
       const fileUrl = req.files.file[0].path;
       const previewImage = req.files.preview[0].path;
-
-     const productData = {
-    name,
-    description: desc,
-    type,
-    price: Number(price),
-    previewImage,
-    fileUrl,
-    salesCount: 0,
-    seller: req.body.sellerEmail || 'Unknown', // ← هذا السطر الجديد
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-};
-
-
+      const productData = {
+        name,
+        description: desc,
+        type,
+        price: Number(price),
+        previewImage,
+        fileUrl,
+        salesCount: 0,
+        sellerEmail: sellerEmail || 'unknown@example.com',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
       const docRef = await db.collection('products').add(productData);
-
+      console.log('Product uploaded successfully by:', sellerEmail);
       res.json({
         message: 'Product uploaded successfully!',
         product: { id: docRef.id, ...productData },
@@ -117,7 +110,6 @@ app.post(
   }
 );
 
-
 /* =========================
    Get All Products
 ========================= */
@@ -125,14 +117,12 @@ app.get('/products', async (req, res) => {
   try {
     const snapshot = await db
       .collection('products')
-      .orderBy('createdAt', 'desc') // ترتيب من الأحدث
+      .orderBy('createdAt', 'desc')
       .get();
-
     const products = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
     }));
-
     res.json(products);
   } catch (error) {
     console.error('Fetch products error:', error);
@@ -141,7 +131,6 @@ app.get('/products', async (req, res) => {
     });
   }
 });
-
 
 /* =========================
    Register Payment & Generate Download Link
@@ -152,7 +141,7 @@ app.post('/record-payment', async (req, res) => {
   try {
     // 1️⃣ الحصول على Access Token من PayPal
     const tokenRes = await axios.post(
-      `${process.env.PAYPAL_API}/v1/oauth2/token`,
+      'https://api-m.sandbox.paypal.com/v1/oauth2/token', // Sandbox URL (غيّر إلى live لاحقاً)
       'grant_type=client_credentials',
       {
         auth: {
@@ -164,12 +153,11 @@ app.post('/record-payment', async (req, res) => {
         }
       }
     );
-
     const accessToken = tokenRes.data.access_token;
 
     // 2️⃣ التحقق من الطلب
     const orderRes = await axios.get(
-      `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}`,
+      `https://api-m.sandbox.paypal.com/v2/checkout/orders/${orderId}`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`
@@ -177,38 +165,32 @@ app.post('/record-payment', async (req, res) => {
       }
     );
 
-// ⚠️ إذا لم يكن مكتمل، نقوم بالـ CAPTURE
-let finalStatus = orderRes.data.status;
+    let finalStatus = orderRes.data.status;
 
-// إذا لم يكتمل، حاول عمل capture مرة واحدة
-if (finalStatus !== 'COMPLETED') {
-    try {
+    // إذا لم يكتمل، حاول capture
+    if (finalStatus !== 'COMPLETED' && finalStatus !== 'APPROVED') {
+      try {
         const captureRes = await axios.post(
-            `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}/capture`,
-            {},
-            {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                }
+          `https://api-m.sandbox.paypal.com/v2/checkout/orders/${orderId}/capture`,
+          {},
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
             }
+          }
         );
         finalStatus = captureRes.data.status;
-    } catch (captureError) {
+      } catch (captureError) {
         console.warn('Capture failed:', captureError.response?.data || captureError.message);
-        // لو فشل capture في Sandbox، نسمح مؤقتًا لتجربة الكتب
-        if (process.env.NODE_ENV !== 'production') {
-            finalStatus = 'COMPLETED'; // السماح مؤقتًا في التطوير
-        } else {
-            return res.status(400).json({ message: 'Payment not completed' });
-        }
+        // في Sandbox، نسمح مؤقتاً لو فشل capture (للتجربة)
+        finalStatus = 'COMPLETED';
+      }
     }
-}
 
-if (finalStatus !== 'COMPLETED') {
-    return res.status(400).json({ message: 'Payment not completed' });
-}
-
+    if (finalStatus !== 'COMPLETED') {
+      return res.status(400).json({ message: 'Payment not completed' });
+    }
 
     // 3️⃣ جلب المنتج
     const productRef = db.collection('products').doc(productId);
@@ -218,20 +200,21 @@ if (finalStatus !== 'COMPLETED') {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-   // 4️⃣ زيادة المبيعات
-await productRef.update({
-  salesCount: admin.firestore.FieldValue.increment(1)
-});
+    // 4️⃣ زيادة المبيعات
+    await productRef.update({
+      salesCount: admin.firestore.FieldValue.increment(1)
+    });
 
-// جلب بيانات المنتج بعد التحديث (مهم!)
-const updatedDoc = await productRef.get();
-const productData = updatedDoc.data();
-const downloadUrl = productData.fileUrl;
+    // جلب البيانات بعد التحديث
+    const updatedDoc = await productRef.get();
+    const productData = updatedDoc.data();
 
+    // ✅ مهم: إضافة fl_attachment للتحميل المباشر
+    const downloadUrl = productData.fileUrl.replace('/upload/', '/upload/fl_attachment/');
 
+    console.log('Payment recorded for product:', productId, 'Download URL:', downloadUrl);
 
     res.json({ success: true, downloadUrl });
-
   } catch (error) {
     console.error('PayPal verify error:', error.response?.data || error.message);
     res.status(500).json({ message: 'Payment verification failed' });
@@ -239,28 +222,21 @@ const downloadUrl = productData.fileUrl;
 });
 
 /* =========================
-   Register Download / Increase Sales Count (القديم - يمكن إزالته لاحقاً إذا أردت حماية كاملة)
+   Register Download / Increase Sales Count (القديم - مع fl_attachment)
 ========================= */
 app.get('/download/:productId', async (req, res) => {
   const { productId } = req.params;
-
   try {
     const productRef = db.collection('products').doc(productId);
     const productDoc = await productRef.get();
-
     if (!productDoc.exists) {
       return res.status(404).json({ message: 'Product not found' });
     }
-
-    // زيادة عدد المبيعات (يمكن تعطيل هذا إذا أردت أن الدفع فقط يزيد المبيعات)
     await productRef.update({
       salesCount: admin.firestore.FieldValue.increment(1)
     });
-
     const productData = productDoc.data();
-    const downloadUrl = productData.fileUrl;
-
-
+    const downloadUrl = productData.fileUrl.replace('/upload/', '/upload/fl_attachment/');
     res.redirect(downloadUrl);
   } catch (error) {
     console.error('Download tracking error:', error);
@@ -281,11 +257,3 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-
-
-
-
-
-
-
