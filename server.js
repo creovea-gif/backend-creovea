@@ -88,16 +88,18 @@ app.post(
       const fileUrl = req.files.file[0].path;
       const previewImage = req.files.preview[0].path;
 
-      const productData = {
-        name,
-        description: desc,
-        type,
-        price: Number(price),
-        previewImage,
-        fileUrl,
-        salesCount: 0,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      };
+     const productData = {
+    name,
+    description: desc,
+    type,
+    price: Number(price),
+    previewImage,
+    fileUrl,
+    salesCount: 0,
+    seller: req.body.sellerEmail || 'Unknown', // ← هذا السطر الجديد
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+};
+
 
       const docRef = await db.collection('products').add(productData);
 
@@ -279,6 +281,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
