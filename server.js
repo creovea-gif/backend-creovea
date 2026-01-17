@@ -174,15 +174,70 @@ app.get('/seller-dashboard', async (req, res) => {
       totalSales += sales * (data.price || 0);
 
        // 🔹 جلب مجموع الأرباح المسحوبة سابقًا
-const payoutSnap = await db
-  .collection('payout_requests')
-  .where('sellerEmail', '==', email)
-  .where('status', '==', 'approved') // أو pending إذا لم تعتمد نظام الموافقة
-  .get();
+app.get('/seller-dashboard', async (req, res) => {
+  try {
+    const { email } = req.query;
 
-payoutSnap.forEach(doc => {
-  withdrawnAmount += doc.data().amount || 0;
+    if (!email) {
+      return res.status(400).json({ message: 'Email required' });
+    }
+
+    // 1️⃣ جلب منتجات البائع
+    const snapshot = await db
+      .collection('products')
+      .where('seller', '==', email)
+      .get();
+
+    let productsCount = snapshot.size;
+    let totalDownloads = 0;
+    let totalSalesAmount = 0;
+
+    const products = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const sales = data.salesCount || 0;
+      const price = data.price || 0;
+
+      totalDownloads += sales;
+      totalSalesAmount += sales * price;
+
+      products.push({
+        name: data.name,
+        sales
+      });
+    });
+
+    // 2️⃣ جلب مجموع المسحوبات (مرة واحدة فقط ✅)
+    let withdrawnAmount = 0;
+
+    const payoutSnap = await db
+      .collection('payout_requests')
+      .where('sellerEmail', '==', email)
+      .where('status', '==', 'approved')
+      .get();
+
+    payoutSnap.forEach(doc => {
+      withdrawnAmount += doc.data().amount || 0;
+    });
+
+    // 3️⃣ حساب الأرباح
+    const grossEarnings = totalSalesAmount * 0.7;
+    const sellerEarnings = Math.max(grossEarnings - withdrawnAmount, 0);
+
+    res.json({
+      productsCount,
+      totalDownloads,
+      sellerEarnings,
+      products
+    });
+
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    res.status(500).json({ message: 'Dashboard fetch failed' });
+  }
 });
+
 
        
       products.push({
@@ -378,6 +433,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
