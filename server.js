@@ -317,28 +317,37 @@ if (finalStatus !== 'COMPLETED') {
 }
 
 
-    // 3️⃣ جلب المنتج
-    const productRef = db.collection('products').doc(productId);
-    const productDoc = await productRef.get();
+   // 3️⃣ جلب المنتج
+const productRef = db.collection('products').doc(productId);
+const productDoc = await productRef.get();
 
-    if (!productDoc.exists) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
+if (!productDoc.exists) {
+  return res.status(404).json({ message: 'Product not found' });
+}
 
-   // 4️⃣ زيادة المبيعات (السطر المفقود 🔥)
+// 🔥 خذ بيانات المنتج أولاً
+const productData = productDoc.data();
+
+// 4️⃣ زيادة المبيعات
 await productRef.update({
   salesCount: admin.firestore.FieldValue.increment(1)
 });
 
-// جلب بيانات المنتج بعد التحديث
-const updatedDoc = await productRef.get();
-const productData = updatedDoc.data();
+// ✅ تسجيل عملية البيع (الآن productData موجود)
+await db.collection('payments').add({
+  productId,
+  sellerEmail: productData.sellerEmail,
+  price: productData.price,
+  sellerShare: productData.price * 0.7,
+  orderId,
+  createdAt: admin.firestore.FieldValue.serverTimestamp()
+});
+
+// رابط التحميل
 const downloadUrl = productData.fileUrl;
 
+res.json({ success: true, downloadUrl });
 
-
-
-    res.json({ success: true, downloadUrl });
 
   } catch (error) {
     console.error('PayPal verify error:', error.response?.data || error.message);
@@ -387,6 +396,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
