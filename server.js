@@ -361,9 +361,7 @@ app.get('/download/:productId', async (req, res) => {
     }
 
     // زيادة عدد المبيعات (يمكن تعطيل هذا إذا أردت أن الدفع فقط يزيد المبيعات)
-    await productRef.update({
-      salesCount: admin.firestore.FieldValue.increment(1)
-    });
+  
 
     const productData = productDoc.data();
     const downloadUrl = productData.fileUrl;
@@ -389,6 +387,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
