@@ -148,82 +148,39 @@ app.get('/products', async (req, res) => {
 app.get('/seller-dashboard', async (req, res) => {
   try {
     const { email } = req.query;
+    if (!email) return res.status(400).json({ message: 'Email required' });
 
-    if (!email) {
-      return res.status(400).json({ message: 'Email required' });
-    }
-
-    const snapshot = await db
-      .collection('products')
-      .where('seller', '==', email)
-      .get();
-
-    let productsCount = snapshot.size;
-    let totalDownloads = 0;
-    let withdrawnAmount = 0;
-
-     let totalSales = 0;
-
-    const products = [];
-
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      const sales = data.salesCount || 0;
-
-      totalDownloads += sales;
-      totalSales += sales * (data.price || 0);
-
-       // 🔹 جلب مجموع الأرباح المسحوبة سابقًا
-app.get('/seller-dashboard', async (req, res) => {
-  try {
-    const { email } = req.query;
-
-    if (!email) {
-      return res.status(400).json({ message: 'Email required' });
-    }
-
-    // 1️⃣ جلب منتجات البائع
-    const snapshot = await db
-      .collection('products')
-      .where('seller', '==', email)
-      .get();
+    // جلب منتجات البائع
+    const snapshot = await db.collection('products').where('seller', '==', email).get();
 
     let productsCount = snapshot.size;
     let totalDownloads = 0;
     let totalSalesAmount = 0;
-
     const products = [];
 
     snapshot.forEach(doc => {
       const data = doc.data();
       const sales = data.salesCount || 0;
       const price = data.price || 0;
-
       totalDownloads += sales;
       totalSalesAmount += sales * price;
-
       products.push({
         name: data.name,
         sales
       });
     });
 
-    // 2️⃣ جلب مجموع المسحوبات (مرة واحدة فقط ✅)
+    // جلب مجموع المسحوبات
     let withdrawnAmount = 0;
-
-    const payoutSnap = await db
-      .collection('payout_requests')
+    const payoutSnap = await db.collection('payout_requests')
       .where('sellerEmail', '==', email)
-      .where('sellerEmail', '==', email)
-.where('status', 'in', ['pending', 'approved'])
-
+      .where('status', 'in', ['pending','approved'])
       .get();
 
     payoutSnap.forEach(doc => {
       withdrawnAmount += doc.data().amount || 0;
     });
 
-    // 3️⃣ حساب الأرباح
     const grossEarnings = totalSalesAmount * 0.7;
     const sellerEarnings = Math.max(grossEarnings - withdrawnAmount, 0);
 
@@ -240,31 +197,6 @@ app.get('/seller-dashboard', async (req, res) => {
   }
 });
 
-
-       
-      products.push({
-        name: data.name,
-        sales
-      });
-    });
-
-   const grossEarnings = totalSales * 0.7;
-const sellerEarnings = Math.max(grossEarnings - withdrawnAmount, 0);
-
-
-    res.json({
-      productsCount,
-      totalDownloads,
-      totalSales,
-      sellerEarnings,
-      products
-    });
-
-  } catch (error) {
-    console.error('Dashboard error:', error);
-    res.status(500).json({ message: 'Dashboard fetch failed' });
-  }
-});
 
 /* =========================
    Request Payout
@@ -452,6 +384,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
