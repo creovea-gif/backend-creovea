@@ -326,9 +326,7 @@ if (finalStatus !== 'COMPLETED') {
     }
 
    // 4️⃣ زيادة المبيعات
-await productRef.update({
-  salesCount: admin.firestore.FieldValue.increment(1)
-});
+
 
 // جلب بيانات المنتج بعد التحديث (مهم!)
 const updatedDoc = await productRef.get();
@@ -388,6 +386,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
