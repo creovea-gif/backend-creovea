@@ -160,7 +160,9 @@ app.get('/seller-dashboard', async (req, res) => {
 
     let productsCount = snapshot.size;
     let totalDownloads = 0;
-    let totalSales = 0;
+    let withdrawnAmount = 0;
+
+     let totalSales = 0;
 
     const products = [];
 
@@ -171,13 +173,27 @@ app.get('/seller-dashboard', async (req, res) => {
       totalDownloads += sales;
       totalSales += sales * (data.price || 0);
 
+       // 🔹 جلب مجموع الأرباح المسحوبة سابقًا
+const payoutSnap = await db
+  .collection('payout_requests')
+  .where('sellerEmail', '==', email)
+  .where('status', '==', 'approved') // أو pending إذا لم تعتمد نظام الموافقة
+  .get();
+
+payoutSnap.forEach(doc => {
+  withdrawnAmount += doc.data().amount || 0;
+});
+
+       
       products.push({
         name: data.name,
         sales
       });
     });
 
-    const sellerEarnings = totalSales * 0.7; // 70%
+   const grossEarnings = totalSales * 0.7;
+const sellerEarnings = Math.max(grossEarnings - withdrawnAmount, 0);
+
 
     res.json({
       productsCount,
@@ -204,30 +220,16 @@ app.post('/request-payout', async (req, res) => {
       return res.status(400).json({ message: 'Missing data' });
     }
 
-   const batch = db.batch();
+    if (amount < 50) {
+      return res.status(400).json({ message: 'Minimum payout is $50' });
+    }
 
-/* 1️⃣ تسجيل طلب السحب */
-const payoutRef = db.collection('payout_requests').doc();
-batch.set(payoutRef, {
-  sellerEmail,
-  amount,
-  status: 'pending',
-  requestedAt: admin.firestore.FieldValue.serverTimestamp()
-});
-
-/* 2️⃣ تصفير المبيعات (الأرباح المحسوبة) */
-const productsSnap = await db
-  .collection('products')
-  .where('seller', '==', sellerEmail)
-  .get();
-
-productsSnap.forEach(doc => {
-  batch.update(doc.ref, {
-    salesCount: 0
-  });
-});
-
-await batch.commit();
+    await db.collection('payout_requests').add({
+      sellerEmail,
+      amount,
+      status: 'approved', // أو pending إذا أردت مراجعة يدوية
+      requestedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
 
     res.json({ success: true });
 
@@ -376,6 +378,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
