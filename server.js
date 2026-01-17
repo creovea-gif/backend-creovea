@@ -209,17 +209,53 @@ app.post('/request-payout', async (req, res) => {
   try {
     const { sellerEmail, amount } = req.body;
 
-    // 1️⃣ تحقق من البيانات
     if (!sellerEmail || !amount) {
       return res.status(400).json({ message: 'Missing data' });
     }
 
-    // 2️⃣ الحد الأدنى للسحب
     if (amount < 50) {
       return res.status(400).json({ message: 'Minimum payout is $50' });
     }
 
-    // 3️⃣ منع وجود طلب سحب معلق مسبقًا
+    // 1️⃣ احسب أرباح البائع الفعلية
+    const productsSnap = await db
+      .collection('products')
+      .where('sellerEmail', '==', sellerEmail)
+      .get();
+
+    let totalSalesAmount = 0;
+
+    productsSnap.forEach(doc => {
+      const data = doc.data();
+      const sales = data.salesCount || 0;
+      const price = data.price || 0;
+      totalSalesAmount += sales * price;
+    });
+
+    const grossEarnings = totalSalesAmount * 0.7;
+
+    // 2️⃣ احسب المسحوبات السابقة
+    let withdrawnAmount = 0;
+    const payoutSnap = await db
+      .collection('payout_requests')
+      .where('sellerEmail', '==', sellerEmail)
+      .where('status', 'in', ['pending', 'approved'])
+      .get();
+
+    payoutSnap.forEach(doc => {
+      withdrawnAmount += doc.data().amount || 0;
+    });
+
+    const availableBalance = grossEarnings - withdrawnAmount;
+
+    // 3️⃣ تحقق من الرصيد الحقيقي
+    if (availableBalance < amount) {
+      return res.status(400).json({
+        message: `Insufficient balance. Available: $${availableBalance.toFixed(2)}`
+      });
+    }
+
+    // 4️⃣ منع وجود طلب معلق
     const existingPending = await db
       .collection('payout_requests')
       .where('sellerEmail', '==', sellerEmail)
@@ -232,11 +268,11 @@ app.post('/request-payout', async (req, res) => {
       });
     }
 
-    // 4️⃣ إنشاء طلب السحب (pending)
+    // 5️⃣ إنشاء طلب السحب
     await db.collection('payout_requests').add({
       sellerEmail,
       amount,
-      status: 'pending', // ⬅️ مهم جدًا
+      status: 'pending',
       requestedAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
@@ -396,6 +432,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
