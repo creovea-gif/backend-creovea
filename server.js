@@ -151,7 +151,11 @@ app.get('/seller-dashboard', async (req, res) => {
     if (!email) return res.status(400).json({ message: 'Email required' });
 
     // جلب منتجات البائع
-    const snapshot = await db.collection('products').where('seller', '==', email).get();
+    const snapshot = await db
+  .collection('products')
+  .where('sellerEmail', '==', email)
+  .get();
+
 
     let productsCount = snapshot.size;
     let totalDownloads = 0;
@@ -384,6 +388,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
