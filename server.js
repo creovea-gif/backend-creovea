@@ -325,13 +325,16 @@ if (finalStatus !== 'COMPLETED') {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-   // 4️⃣ زيادة المبيعات
+   // 4️⃣ زيادة المبيعات (السطر المفقود 🔥)
+await productRef.update({
+  salesCount: admin.firestore.FieldValue.increment(1)
+});
 
-
-// جلب بيانات المنتج بعد التحديث (مهم!)
+// جلب بيانات المنتج بعد التحديث
 const updatedDoc = await productRef.get();
 const productData = updatedDoc.data();
 const downloadUrl = productData.fileUrl;
+
 
 
 
@@ -386,6 +389,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
