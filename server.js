@@ -96,7 +96,7 @@ app.post(
     previewImage,
     fileUrl,
     salesCount: 0,
-    seller: req.body.sellerEmail || 'Unknown', // ← هذا السطر الجديد
+    sellerEmail: req.body.sellerEmail, // ← هذا السطر الجديد
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
 };
 
@@ -384,6 +384,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
