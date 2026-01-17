@@ -214,7 +214,9 @@ app.get('/seller-dashboard', async (req, res) => {
     const payoutSnap = await db
       .collection('payout_requests')
       .where('sellerEmail', '==', email)
-      .where('status', '==', 'approved')
+      .where('sellerEmail', '==', email)
+.where('status', 'in', ['pending', 'approved'])
+
       .get();
 
     payoutSnap.forEach(doc => {
@@ -271,18 +273,34 @@ app.post('/request-payout', async (req, res) => {
   try {
     const { sellerEmail, amount } = req.body;
 
+    // 1️⃣ تحقق من البيانات
     if (!sellerEmail || !amount) {
       return res.status(400).json({ message: 'Missing data' });
     }
 
+    // 2️⃣ الحد الأدنى للسحب
     if (amount < 50) {
       return res.status(400).json({ message: 'Minimum payout is $50' });
     }
 
+    // 3️⃣ منع وجود طلب سحب معلق مسبقًا
+    const existingPending = await db
+      .collection('payout_requests')
+      .where('sellerEmail', '==', sellerEmail)
+      .where('status', '==', 'pending')
+      .get();
+
+    if (!existingPending.empty) {
+      return res.status(400).json({
+        message: 'You already have a pending payout request'
+      });
+    }
+
+    // 4️⃣ إنشاء طلب السحب (pending)
     await db.collection('payout_requests').add({
       sellerEmail,
       amount,
-      status: 'approved', // أو pending إذا أردت مراجعة يدوية
+      status: 'pending', // ⬅️ مهم جدًا
       requestedAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
@@ -293,6 +311,7 @@ app.post('/request-payout', async (req, res) => {
     res.status(500).json({ message: 'Payout request failed' });
   }
 });
+
 
 
 /* =========================
@@ -433,6 +452,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
