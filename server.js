@@ -204,12 +204,30 @@ app.post('/request-payout', async (req, res) => {
       return res.status(400).json({ message: 'Missing data' });
     }
 
-    await db.collection('payout_requests').add({
-      sellerEmail,
-      amount,
-      status: 'pending',
-      requestedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+   const batch = db.batch();
+
+/* 1️⃣ تسجيل طلب السحب */
+const payoutRef = db.collection('payout_requests').doc();
+batch.set(payoutRef, {
+  sellerEmail,
+  amount,
+  status: 'pending',
+  requestedAt: admin.firestore.FieldValue.serverTimestamp()
+});
+
+/* 2️⃣ تصفير المبيعات (الأرباح المحسوبة) */
+const productsSnap = await db
+  .collection('products')
+  .where('seller', '==', sellerEmail)
+  .get();
+
+productsSnap.forEach(doc => {
+  batch.update(doc.ref, {
+    salesCount: 0
+  });
+});
+
+await batch.commit();
 
     res.json({ success: true });
 
@@ -358,6 +376,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
