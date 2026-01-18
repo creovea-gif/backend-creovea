@@ -300,14 +300,7 @@ app.post('/request-payout', verifyFirebaseToken, async (req, res) => {
   }
 });
 
-res.json({ success: true, downloadUrl });
 
-
-  } catch (error) {
-    console.error('PayPal verify error:', error.response?.data || error.message);
-    res.status(500).json({ message: 'Payment verification failed' });
-  }
-});
 
 /* =========================
    Register Payment & Generate Download Link
@@ -439,6 +432,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
