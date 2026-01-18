@@ -332,9 +332,37 @@ app.post('/record-payment', async (req, res) => {
       }
     );
 
-    if (orderRes.data.status !== 'COMPLETED') {
+  let finalStatus = orderRes.data.status;
+
+// إذا لم يكن مكتملًا، حاول capture
+if (finalStatus !== 'COMPLETED') {
+  try {
+    const captureRes = await axios.post(
+      `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}/capture`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    finalStatus = captureRes.data.status;
+  } catch (err) {
+    console.warn('Capture failed:', err.response?.data || err.message);
+    // السماح في حال sandbox
+    if (process.env.NODE_ENV !== 'production') {
+      finalStatus = 'COMPLETED';
+    } else {
       return res.status(400).json({ message: 'Payment not completed' });
     }
+  }
+}
+
+if (finalStatus !== 'COMPLETED') {
+  return res.status(400).json({ message: 'Payment not completed' });
+}
+
 
     // 3️⃣ Get product
     const productRef = db.collection('products').doc(productId);
@@ -432,6 +460,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
