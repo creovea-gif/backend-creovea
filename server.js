@@ -381,11 +381,15 @@ if (!productDoc.exists) {
 const productData = productDoc.data();
 
 // 4️⃣ زيادة المبيعات
+// 4️⃣ جلب بيانات المنتج أولًا
+const productData = productDoc.data();
+
+// 5️⃣ زيادة المبيعات
 await productRef.update({
   salesCount: admin.firestore.FieldValue.increment(1)
 });
 
-// ✅ تسجيل عملية البيع (الآن productData موجود)
+// 6️⃣ تسجيل عملية البيع
 await db.collection('payments').add({
   productId,
   sellerEmail: productData.sellerEmail,
@@ -395,17 +399,11 @@ await db.collection('payments').add({
   createdAt: admin.firestore.FieldValue.serverTimestamp()
 });
 
-// رابط التحميل
+// 7️⃣ رابط التحميل
 const downloadUrl = productData.fileUrl;
 
-     await db.collection('purchases').add({
-  productId,
-  buyerUid: req.user.uid,   // مهم جدًا
-  createdAt: admin.firestore.FieldValue.serverTimestamp()
-});
-
-     
 res.json({ success: true, downloadUrl });
+
 
 
   } catch (error) {
@@ -455,6 +453,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
