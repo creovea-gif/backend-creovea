@@ -1,3 +1,21 @@
+async function verifyFirebaseToken(req, res, next) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const token = authHeader.split('Bearer ')[1];
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.user = decoded; // email, uid
+    next();
+  } catch (err) {
+    return res.status(401).json({ message: 'Invalid token' });
+  }
+}
+
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
@@ -207,7 +225,10 @@ app.get('/seller-dashboard', async (req, res) => {
 ========================= */
 app.post('/request-payout', async (req, res) => {
   try {
-    const { sellerEmail, amount } = req.body;
+    app.post('/request-payout', verifyFirebaseToken, async (req, res) => {
+  const sellerEmail = req.user.email;
+  const { amount } = req.body;
+
 
     if (!sellerEmail || !amount) {
       return res.status(400).json({ message: 'Missing data' });
@@ -382,6 +403,13 @@ await db.collection('payments').add({
 // رابط التحميل
 const downloadUrl = productData.fileUrl;
 
+     await db.collection('purchases').add({
+  productId,
+  buyerUid: req.user.uid,   // مهم جدًا
+  createdAt: admin.firestore.FieldValue.serverTimestamp()
+});
+
+     
 res.json({ success: true, downloadUrl });
 
 
@@ -432,6 +460,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
