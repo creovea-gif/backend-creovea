@@ -309,7 +309,7 @@ app.post('/record-payment', async (req, res) => {
   const { productId, orderId } = req.body;
 
   try {
-    // 1️⃣ الحصول على Access Token من PayPal
+    // 1️⃣ PayPal Token
     const tokenRes = await axios.post(
       `${process.env.PAYPAL_API}/v1/oauth2/token`,
       'grant_type=client_credentials',
@@ -318,105 +318,75 @@ app.post('/record-payment', async (req, res) => {
           username: process.env.PAYPAL_CLIENT_ID,
           password: process.env.PAYPAL_SECRET
         },
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       }
     );
 
     const accessToken = tokenRes.data.access_token;
 
-    // 2️⃣ التحقق من الطلب
+    // 2️⃣ Verify order
     const orderRes = await axios.get(
       `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}`,
       {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
       }
     );
 
-// ⚠️ إذا لم يكن مكتمل، نقوم بالـ CAPTURE
-let finalStatus = orderRes.data.status;
-
-// إذا لم يكتمل، حاول عمل capture مرة واحدة
-if (finalStatus !== 'COMPLETED') {
-    try {
-        const captureRes = await axios.post(
-            `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}/capture`,
-            {},
-            {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
-        finalStatus = captureRes.data.status;
-    } catch (captureError) {
-        console.warn('Capture failed:', captureError.response?.data || captureError.message);
-        // لو فشل capture في Sandbox، نسمح مؤقتًا لتجربة الكتب
-        if (process.env.NODE_ENV !== 'production') {
-            finalStatus = 'COMPLETED'; // السماح مؤقتًا في التطوير
-        } else {
-            return res.status(400).json({ message: 'Payment not completed' });
-        }
+    if (orderRes.data.status !== 'COMPLETED') {
+      return res.status(400).json({ message: 'Payment not completed' });
     }
-}
 
-if (finalStatus !== 'COMPLETED') {
-    return res.status(400).json({ message: 'Payment not completed' });
-}
+    // 3️⃣ Get product
+    const productRef = db.collection('products').doc(productId);
+    const productDoc = await productRef.get();
 
+    if (!productDoc.exists) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
 
-   // 3️⃣ جلب المنتج
-const productRef = db.collection('products').doc(productId);
-const productDoc = await productRef.get();
+    const productData = productDoc.data();
 
-if (!productDoc.exists) {
-  return res.status(404).json({ message: 'Product not found' });
-}
+    // 4️⃣ IMPORTANT: prevent duplicate payment
+    const existingPayment = await db
+      .collection('payments')
+      .where('orderId', '==', orderId)
+      .limit(1)
+      .get();
 
+    if (!existingPayment.empty) {
+      return res.json({
+        success: true,
+        downloadUrl: productData.fileUrl
+      });
+    }
 
-// 4️⃣ بيانات المنتج (مرة واحدة فقط)
-const productData = productDoc.data();
+    // 5️⃣ Increase sales ONCE
+    await productRef.update({
+      salesCount: admin.firestore.FieldValue.increment(1)
+    });
 
+    // 6️⃣ Save payment
+    await db.collection('payments').add({
+      productId,
+      orderId,
+      sellerEmail: productData.sellerEmail,
+      price: productData.price,
+      sellerShare: productData.price * 0.7,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
 
-
-
-
-// 7️⃣ رابط التحميل
-res.json({
-  success: true,
-  downloadUrl: productData.fileUrl
-});
-
-// 5️⃣ زيادة المبيعات
-await productRef.update({
-  salesCount: admin.firestore.FieldValue.increment(1)
-});
-
-// 6️⃣ تسجيل عملية البيع
-await db.collection('payments').add({
-  productId,
-  sellerEmail: productData.sellerEmail,
-  price: productData.price,
-  sellerShare: productData.price * 0.7,
-  orderId,
-  createdAt: admin.firestore.FieldValue.serverTimestamp()
-});
-
-
-
-res.json({ success: true, downloadUrl });
-
-
+    // 7️⃣ Send download link ONCE
+    res.json({
+      success: true,
+      downloadUrl: productData.fileUrl
+    });
 
   } catch (error) {
-    console.error('PayPal verify error:', error.response?.data || error.message);
+    console.error('Payment error:', error.message);
     res.status(500).json({ message: 'Payment verification failed' });
   }
 });
+
 
 /* =========================
    Register Download / Increase Sales Count (القديم - يمكن إزالته لاحقاً إذا أردت حماية كاملة)
@@ -459,6 +429,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
