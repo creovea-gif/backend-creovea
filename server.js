@@ -223,22 +223,20 @@ app.get('/seller-dashboard', async (req, res) => {
 /* =========================
    Request Payout
 ========================= */
-app.post('/request-payout', async (req, res) => {
+app.post('/request-payout', verifyFirebaseToken, async (req, res) => {
   try {
-    app.post('/request-payout', verifyFirebaseToken, async (req, res) => {
-  const sellerEmail = req.user.email;
-  const { amount } = req.body;
+    const sellerEmail = req.user.email;
+    const { amount } = req.body;
 
-
-    if (!sellerEmail || !amount) {
-      return res.status(400).json({ message: 'Missing data' });
+    if (!amount) {
+      return res.status(400).json({ message: 'Missing amount' });
     }
 
     if (amount < 50) {
       return res.status(400).json({ message: 'Minimum payout is $50' });
     }
 
-    // 1️⃣ احسب أرباح البائع الفعلية
+    // 🔹 حساب إجمالي المبيعات
     const productsSnap = await db
       .collection('products')
       .where('sellerEmail', '==', sellerEmail)
@@ -248,14 +246,12 @@ app.post('/request-payout', async (req, res) => {
 
     productsSnap.forEach(doc => {
       const data = doc.data();
-      const sales = data.salesCount || 0;
-      const price = data.price || 0;
-      totalSalesAmount += sales * price;
+      totalSalesAmount += (data.salesCount || 0) * (data.price || 0);
     });
 
     const grossEarnings = totalSalesAmount * 0.7;
 
-    // 2️⃣ احسب المسحوبات السابقة
+    // 🔹 حساب المسحوبات السابقة
     let withdrawnAmount = 0;
     const payoutSnap = await db
       .collection('payout_requests')
@@ -269,27 +265,26 @@ app.post('/request-payout', async (req, res) => {
 
     const availableBalance = grossEarnings - withdrawnAmount;
 
-    // 3️⃣ تحقق من الرصيد الحقيقي
     if (availableBalance < amount) {
       return res.status(400).json({
         message: `Insufficient balance. Available: $${availableBalance.toFixed(2)}`
       });
     }
 
-    // 4️⃣ منع وجود طلب معلق
-    const existingPending = await db
+    // 🔹 منع طلبين معلقين
+    const pendingSnap = await db
       .collection('payout_requests')
       .where('sellerEmail', '==', sellerEmail)
       .where('status', '==', 'pending')
       .get();
 
-    if (!existingPending.empty) {
+    if (!pendingSnap.empty) {
       return res.status(400).json({
         message: 'You already have a pending payout request'
       });
     }
 
-    // 5️⃣ إنشاء طلب السحب
+    // 🔹 إنشاء طلب السحب
     await db.collection('payout_requests').add({
       sellerEmail,
       amount,
@@ -460,6 +455,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
