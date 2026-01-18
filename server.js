@@ -377,12 +377,19 @@ if (!productDoc.exists) {
   return res.status(404).json({ message: 'Product not found' });
 }
 
-// 🔥 خذ بيانات المنتج أولاً
+
+// 4️⃣ بيانات المنتج (مرة واحدة فقط)
 const productData = productDoc.data();
 
-// 4️⃣ زيادة المبيعات
-// 4️⃣ جلب بيانات المنتج أولًا
-const productData = productDoc.data();
+
+
+
+
+// 7️⃣ رابط التحميل
+res.json({
+  success: true,
+  downloadUrl: productData.fileUrl
+});
 
 // 5️⃣ زيادة المبيعات
 await productRef.update({
@@ -399,8 +406,7 @@ await db.collection('payments').add({
   createdAt: admin.firestore.FieldValue.serverTimestamp()
 });
 
-// 7️⃣ رابط التحميل
-const downloadUrl = productData.fileUrl;
+
 
 res.json({ success: true, downloadUrl });
 
@@ -453,6 +459,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
