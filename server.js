@@ -89,7 +89,8 @@ app.post(
   ]),
   async (req, res) => {
     try {
-      const { name, desc, type, price } = req.body;
+      const { name, desc, type, price, pages } = req.body;
+
 
       if (!name || !desc || !type || !price) {
         return res.status(400).json({
@@ -106,17 +107,19 @@ app.post(
       const fileUrl = req.files.file[0].path;
       const previewImage = req.files.preview[0].path;
 
-     const productData = {
-    name,
-    description: desc,
-    type,
-    price: Number(price),
-    previewImage,
-    fileUrl,
-    salesCount: 0,
-    sellerEmail: req.body.sellerEmail, // ← هذا السطر الجديد
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+   const productData = {
+  name,
+  description: desc,
+  type,
+  price: Number(price),
+  previewImage,
+  fileUrl,
+  salesCount: 0,
+  sellerEmail: req.body.sellerEmail,
+  pages: pages ? Number(pages) : null, // ✅ اختياري
+  createdAt: admin.firestore.FieldValue.serverTimestamp(),
 };
+
 
 
       const docRef = await db.collection('products').add(productData);
@@ -460,6 +463,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
