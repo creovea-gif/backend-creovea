@@ -83,6 +83,7 @@ const upload = multer({
 ========================= */
 app.post(
   '/upload',
+  verifyFirebaseToken,
   upload.fields([
     { name: 'file', maxCount: 1 },
     { name: 'preview', maxCount: 1 },
@@ -115,7 +116,7 @@ app.post(
   previewImage,
   fileUrl,
   salesCount: 0,
-  sellerEmail: req.body.sellerEmail,
+  sellerEmail: req.user.email,
   pages: pages ? Number(pages) : null, // ✅ اختياري
   createdAt: admin.firestore.FieldValue.serverTimestamp(),
 };
@@ -463,6 +464,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
