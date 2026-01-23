@@ -411,10 +411,11 @@ if (finalStatus !== 'COMPLETED') {
     });
 
     // 7️⃣ Send download link ONCE
-   res.json({
+ res.json({
   success: true,
-  downloadToken: orderId
+  downloadUrl: `https://backend-creovea.onrender.com/secure-download/${productId}/${orderId}`
 });
+
 
 
 
@@ -508,6 +509,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
