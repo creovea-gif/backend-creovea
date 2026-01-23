@@ -114,7 +114,8 @@ app.post(
   type,
   price: Number(price),
   previewImage,
-  fileUrl,
+ filePath: fileUrl,
+
   salesCount: 0,
   sellerEmail: req.user.email,
   pages: pages ? Number(pages) : null, // ✅ اختياري
@@ -410,10 +411,12 @@ if (finalStatus !== 'COMPLETED') {
     });
 
     // 7️⃣ Send download link ONCE
-    res.json({
-      success: true,
-      downloadUrl: productData.fileUrl
-    });
+   res.json({
+  success: true,
+  downloadToken: orderId
+});
+
+
 
   } catch (error) {
     console.error('Payment error:', error.message);
@@ -451,6 +454,45 @@ app.get('/download/:productId', async (req, res) => {
   }
 });
 
+/* =========================
+   Secure Download (PROTECTED)
+========================= */
+app.get('/secure-download/:productId/:orderId', async (req, res) => {
+  const { productId, orderId } = req.params;
+
+  try {
+    // تحقق من الدفع
+    const paymentSnap = await db
+      .collection('payments')
+      .where('orderId', '==', orderId)
+      .where('productId', '==', productId)
+      .limit(1)
+      .get();
+
+    if (paymentSnap.empty) {
+      return res.status(403).send('Unauthorized download');
+    }
+
+    // جلب المنتج
+    const productDoc = await db
+      .collection('products')
+      .doc(productId)
+      .get();
+
+    if (!productDoc.exists) {
+      return res.status(404).send('Product not found');
+    }
+
+    const productData = productDoc.data();
+
+    // إعادة التوجيه للملف
+    res.redirect(productData.filePath);
+
+  } catch (error) {
+    console.error('Secure download error:', error);
+    res.status(500).send('Download failed');
+  }
+});
 
 
 /* =========================
@@ -466,6 +508,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
