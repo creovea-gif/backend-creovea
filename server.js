@@ -167,15 +167,16 @@ app.get('/products', async (req, res) => {
 /* =========================
    Seller Dashboard Data
 ========================= */
-app.get('/seller-dashboard', async (req, res) => {
-  try {
-    const { email } = req.query;
-    if (!email) return res.status(400).json({ message: 'Email required' });
+app.get('/seller-dashboard', verifyFirebaseToken, async (req, res) => {
+const sellerEmail = req.user.email;
 
+  try {
+   
     // جلب منتجات البائع
     const snapshot = await db
   .collection('products')
-  .where('sellerEmail', '==', email)
+  .where('sellerEmail', '==', sellerEmail)
+
   .get();
 
 
@@ -199,7 +200,8 @@ app.get('/seller-dashboard', async (req, res) => {
     // جلب مجموع المسحوبات
     let withdrawnAmount = 0;
     const payoutSnap = await db.collection('payout_requests')
-      .where('sellerEmail', '==', email)
+     .where('sellerEmail', '==', sellerEmail)
+
       .where('status', 'in', ['pending','approved'])
       .get();
 
@@ -464,6 +466,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
