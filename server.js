@@ -31,9 +31,14 @@ const PORT = process.env.PORT || 10000;
    CORS
 ========================= */
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST'],
+  origin: [
+    'https://creovia.uk',
+    'https://www.creovia.uk'
+  ],
+  methods: ['GET','POST'],
+  credentials: true
 }));
+
 
 /* =========================
    Body Parsers
@@ -509,6 +514,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
