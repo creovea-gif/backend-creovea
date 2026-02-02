@@ -419,7 +419,7 @@ if (finalStatus !== 'COMPLETED') {
     // 7️⃣ Send download link ONCE
  res.json({
   success: true,
-  downloadUrl: `https://backend-creovea.onrender.com/secure-download/${productId}/${orderId}`
+  downloadUrl: `https://api.creovia.uk/secure-download/${productId}/${orderId}`
 });
 
 
@@ -515,6 +515,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
