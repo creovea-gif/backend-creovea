@@ -30,9 +30,21 @@ const PORT = process.env.PORT || 10000;
 /* =========================
    CORS
 ========================= */
+const allowedOrigins = [
+  'http://creovia.uk',
+  'http://www.creovia.uk'
+];
+
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST'],
+  origin: function(origin, callback) {
+    if(!origin) return callback(null, true); // يسمح بالطلبات من Postman أو curl
+    if(allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  methods: ['GET','POST']
 }));
 
 
@@ -515,6 +527,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
