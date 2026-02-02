@@ -36,7 +36,7 @@ app.use(cors({
     'https://www.creovia.uk'
   ],
   methods: ['GET','POST'],
-  credentials: true
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 
@@ -514,6 +514,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
