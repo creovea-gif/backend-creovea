@@ -30,21 +30,31 @@ const PORT = process.env.PORT || 10000;
 /* =========================
    CORS
 ========================= */
-app.use(cors({
-  origin: [
-    'https://creovia.uk',
-    'https://www.creovia.uk'
-  ],
-  methods: ['GET','POST'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
 
 
 /* =========================
    Body Parsers
 ========================= */
-app.options('*', cors());
+
 app.use(express.json());
+
+// =========================
+// 🔥 GLOBAL CORS HANDLER (IMPORTANT)
+// =========================
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "https://creovia.uk");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
+  next();
+});
+
+
+
 app.use(express.urlencoded({ extended: true }));
 
 /* =========================
@@ -515,6 +525,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
