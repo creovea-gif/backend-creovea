@@ -31,6 +31,8 @@ const PORT = process.env.PORT || 10000;
    CORS
 ========================= */
 const allowedOrigins = [
+  'http://creovia.uk',
+  'http://www.creovia.uk',
   'https://creovia.uk',
   'https://www.creovia.uk'
 ];
@@ -527,6 +529,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
