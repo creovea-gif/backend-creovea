@@ -30,6 +30,30 @@ const PORT = process.env.PORT || 10000;
 /* =========================
    CORS
 ========================= */
+import express from 'express';
+import cors from 'cors';
+
+const app = express();
+
+// السماح للـ frontend فقط
+app.use(cors({
+    origin: 'https://creovia.uk', // رابط موقعك الأمامي
+    methods: ['GET','POST','PUT','DELETE'],
+    credentials: true, // إذا كنت تستخدم توكن أو كوكي
+}));
+
+// أو للسماح لكل المواقع (تجربة فقط، غير آمنة للانتاج)
+app.use(cors());
+
+// باقي إعدادات السيرفر
+app.get('/products', (req, res) => {
+    res.json([
+        {id:1,name:'Book 1',price:9.99},
+        {id:2,name:'Book 2',price:14.99}
+    ]);
+});
+
+app.listen(3000, () => console.log('Server running on port 3000'));
 
 
 /* =========================
@@ -38,20 +62,6 @@ const PORT = process.env.PORT || 10000;
 
 app.use(express.json());
 
-// =========================
-// 🔥 GLOBAL CORS HANDLER (IMPORTANT)
-// =========================
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "https://creovia.uk");
-  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-
-  next();
-});
 
 
 
@@ -525,6 +535,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
