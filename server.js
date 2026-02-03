@@ -261,6 +261,7 @@ const snapshot = await db
    Request Payout
 ========================= */
 app.post('/request-payout', verifyFirebaseToken, async (req, res) => {
+const sellerUid = req.user.uid;
 
 
   // 🔒 منع السحب من حساب محظور
@@ -580,6 +581,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
