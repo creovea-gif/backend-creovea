@@ -535,6 +535,29 @@ app.get('/secure-download/:productId/:orderId', async (req, res) => {
 });
 
 
+
+app.post('/admin/ban-user', async (req, res) => {
+  const { uid, adminKey } = req.body;
+
+  // 🔐 حماية الإدمن
+  if (adminKey !== process.env.ADMIN_SECRET_KEY) {
+    return res.status(403).json({ message: 'Unauthorized' });
+  }
+
+  try {
+    await admin.auth().updateUser(uid, {
+      disabled: true
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to ban user' });
+  }
+});
+
+
+
+
 /* =========================
    Health Check
 ========================= */
@@ -548,6 +571,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
