@@ -128,17 +128,23 @@ app.post(
       const fileUrl = req.files.file[0].path;
       const previewImage = req.files.preview[0].path;
 
-   const productData = {
+  const productData = {
   name,
   description: desc,
   type,
   price: Number(price),
   previewImage,
- filePath: fileUrl,
+  filePath: fileUrl,
 
   salesCount: 0,
   sellerEmail: req.user.email,
-  pages: pages ? Number(pages) : null, // ✅ اختياري
+  sellerUid: req.user.uid, // ✅ مهم
+  pages: pages ? Number(pages) : null,
+
+  // ✅ إثبات الموافقة القانونية
+  sellerAgreedToTerms: true,
+  uploadedIp: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+
   createdAt: admin.firestore.FieldValue.serverTimestamp(),
 };
 
@@ -251,6 +257,19 @@ const sellerEmail = req.user.email;
    Request Payout
 ========================= */
 app.post('/request-payout', verifyFirebaseToken, async (req, res) => {
+
+
+  // 🔒 منع السحب من حساب محظور
+const userRecord = await admin.auth().getUser(req.user.uid);
+
+if (userRecord.disabled) {
+  return res.status(403).json({
+    message: 'Your account is suspended due to policy violations. Earnings are frozen.'
+  });
+}
+
+
+  
   try {
     const sellerEmail = req.user.email;
     const { amount } = req.body;
@@ -529,6 +548,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
