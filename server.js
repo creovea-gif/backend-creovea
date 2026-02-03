@@ -195,16 +195,20 @@ app.get('/products', async (req, res) => {
    Seller Dashboard Data
 ========================= */
 app.get('/seller-dashboard', verifyFirebaseToken, async (req, res) => {
-const sellerEmail = req.user.email;
+const sellerUid = req.user.uid;
+const sellerEmail = req.user.email; // نحتفظ به فقط للدفع
+
 
   try {
    
     // جلب منتجات البائع
-    const snapshot = await db
-  .collection('products')
-  .where('sellerEmail', '==', sellerEmail)
+const sellerUid = req.user.uid;
 
+const snapshot = await db
+  .collection('products')
+  .where('sellerUid', '==', sellerUid)
   .get();
+
 
 
     let productsCount = snapshot.size;
@@ -226,11 +230,11 @@ const sellerEmail = req.user.email;
 
     // جلب مجموع المسحوبات
     let withdrawnAmount = 0;
-    const payoutSnap = await db.collection('payout_requests')
-     .where('sellerEmail', '==', sellerEmail)
+   const payoutSnap = await db.collection('payout_requests')
+  .where('sellerUid', '==', sellerUid)
+  .where('status', 'in', ['pending','approved'])
+  .get();
 
-      .where('status', 'in', ['pending','approved'])
-      .get();
 
     payoutSnap.forEach(doc => {
       withdrawnAmount += doc.data().amount || 0;
@@ -285,7 +289,8 @@ if (userRecord.disabled) {
     // 🔹 حساب إجمالي المبيعات
     const productsSnap = await db
       .collection('products')
-      .where('sellerEmail', '==', sellerEmail)
+      .where('sellerUid', '==', sellerUid)
+
       .get();
 
     let totalSalesAmount = 0;
@@ -301,7 +306,8 @@ if (userRecord.disabled) {
     let withdrawnAmount = 0;
     const payoutSnap = await db
       .collection('payout_requests')
-      .where('sellerEmail', '==', sellerEmail)
+      .where('sellerUid', '==', sellerUid)
+
       .where('status', 'in', ['pending', 'approved'])
       .get();
 
@@ -320,7 +326,8 @@ if (userRecord.disabled) {
     // 🔹 منع طلبين معلقين
     const pendingSnap = await db
       .collection('payout_requests')
-      .where('sellerEmail', '==', sellerEmail)
+     .where('sellerUid', '==', sellerUid)
+
       .where('status', '==', 'pending')
       .get();
 
@@ -331,12 +338,14 @@ if (userRecord.disabled) {
     }
 
     // 🔹 إنشاء طلب السحب
-    await db.collection('payout_requests').add({
-      sellerEmail,
-      amount,
-      status: 'pending',
-      requestedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+   await db.collection('payout_requests').add({
+  sellerUid,          // 🔐 للأمان
+  sellerEmail,        // 💸 للدفع فقط
+  amount,
+  status: 'pending',
+  requestedAt: admin.firestore.FieldValue.serverTimestamp()
+});
+
 
     res.json({ success: true });
 
@@ -571,6 +580,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
