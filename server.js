@@ -374,19 +374,7 @@ app.post('/record-payment', async (req, res) => {
   let finalStatus = orderRes.data.status;
 
 // إذا لم يكن مكتملًا، حاول capture
-if (finalStatus !== 'COMPLETED') {
-  try {
-    const captureRes = await axios.post(
-      `${PAYPAL_BASE}/v2/checkout/orders/${orderId}/capture`,
 
-      {},
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
     finalStatus = captureRes.data.status;
   } catch (err) {
     console.warn('Capture failed:', err.response?.data || err.message);
@@ -542,6 +530,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
