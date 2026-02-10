@@ -330,6 +330,16 @@ app.post('/request-payout', verifyFirebaseToken, async (req, res) => {
 
 
 /* =========================
+   PayPal Config (Sandbox)
+========================= */
+
+const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
+const PAYPAL_SECRET = process.env.PAYPAL_SECRET;
+
+const PAYPAL_BASE = "https://api-m.sandbox.paypal.com";
+
+
+/* =========================
    Register Payment & Generate Download Link
 ========================= */
 app.post('/record-payment', async (req, res) => {
@@ -338,7 +348,8 @@ app.post('/record-payment', async (req, res) => {
   try {
     // 1️⃣ PayPal Token
     const tokenRes = await axios.post(
-      `${process.env.PAYPAL_API}/v1/oauth2/token`,
+     `${PAYPAL_BASE}/v1/oauth2/token`,
+
       'grant_type=client_credentials',
       {
         auth: {
@@ -353,7 +364,8 @@ app.post('/record-payment', async (req, res) => {
 
     // 2️⃣ Verify order
     const orderRes = await axios.get(
-      `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}`,
+     `${PAYPAL_BASE}/v2/checkout/orders/${orderId}`,
+
       {
         headers: { Authorization: `Bearer ${accessToken}` }
       }
@@ -365,7 +377,8 @@ app.post('/record-payment', async (req, res) => {
 if (finalStatus !== 'COMPLETED') {
   try {
     const captureRes = await axios.post(
-      `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}/capture`,
+      `${PAYPAL_BASE}/v2/checkout/orders/${orderId}/capture`,
+
       {},
       {
         headers: {
@@ -529,6 +542,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
