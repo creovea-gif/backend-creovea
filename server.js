@@ -30,35 +30,15 @@ const PORT = process.env.PORT || 10000;
 /* =========================
    CORS
 ========================= */
-const allowedOrigins = [
-  'http://creovia.uk',
-  'http://www.creovia.uk',
-  'https://creovia.uk',
-  'https://www.creovia.uk'
-];
-
 app.use(cors({
-  origin: function(origin, callback) {
-    if(!origin) return callback(null, true); // يسمح بالطلبات من Postman أو curl
-    if(allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  },
-  methods: ['GET','POST']
+  origin: '*',
+  methods: ['GET', 'POST'],
 }));
-
 
 /* =========================
    Body Parsers
 ========================= */
-
 app.use(express.json());
-
-
-
-
 app.use(express.urlencoded({ extended: true }));
 
 /* =========================
@@ -103,15 +83,13 @@ const upload = multer({
 ========================= */
 app.post(
   '/upload',
-  verifyFirebaseToken,
   upload.fields([
     { name: 'file', maxCount: 1 },
     { name: 'preview', maxCount: 1 },
   ]),
   async (req, res) => {
     try {
-      const { name, desc, type, price, pages } = req.body;
-
+      const { name, desc, type, price } = req.body;
 
       if (!name || !desc || !type || !price) {
         return res.status(400).json({
@@ -128,26 +106,17 @@ app.post(
       const fileUrl = req.files.file[0].path;
       const previewImage = req.files.preview[0].path;
 
-  const productData = {
-  name,
-  description: desc,
-  type,
-  price: Number(price),
-  previewImage,
-  filePath: fileUrl,
-
-  salesCount: 0,
-  sellerEmail: req.user.email,
-  sellerUid: req.user.uid, // ✅ مهم
-  pages: pages ? Number(pages) : null,
-
-  // ✅ إثبات الموافقة القانونية
-  sellerAgreedToTerms: true,
-  uploadedIp: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
-
-  createdAt: admin.firestore.FieldValue.serverTimestamp(),
+     const productData = {
+    name,
+    description: desc,
+    type,
+    price: Number(price),
+    previewImage,
+    fileUrl,
+    salesCount: 0,
+    sellerEmail: req.body.sellerEmail, // ← هذا السطر الجديد
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
 };
-
 
 
       const docRef = await db.collection('products').add(productData);
@@ -194,21 +163,16 @@ app.get('/products', async (req, res) => {
 /* =========================
    Seller Dashboard Data
 ========================= */
-app.get('/seller-dashboard', verifyFirebaseToken, async (req, res) => {
-const sellerUid = req.user.uid;
-const sellerEmail = req.user.email; // نحتفظ به فقط للدفع
-
-
+app.get('/seller-dashboard', async (req, res) => {
   try {
-   
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ message: 'Email required' });
+
     // جلب منتجات البائع
-const sellerUid = req.user.uid;
-
-const snapshot = await db
+    const snapshot = await db
   .collection('products')
-  .where('sellerUid', '==', sellerUid)
+  .where('sellerEmail', '==', email)
   .get();
-
 
 
     let productsCount = snapshot.size;
@@ -230,11 +194,10 @@ const snapshot = await db
 
     // جلب مجموع المسحوبات
     let withdrawnAmount = 0;
-   const payoutSnap = await db.collection('payout_requests')
-  .where('sellerUid', '==', sellerUid)
-  .where('status', 'in', ['pending','approved'])
-  .get();
-
+    const payoutSnap = await db.collection('payout_requests')
+      .where('sellerEmail', '==', email)
+      .where('status', 'in', ['pending','approved'])
+      .get();
 
     payoutSnap.forEach(doc => {
       withdrawnAmount += doc.data().amount || 0;
@@ -261,20 +224,6 @@ const snapshot = await db
    Request Payout
 ========================= */
 app.post('/request-payout', verifyFirebaseToken, async (req, res) => {
-const sellerUid = req.user.uid;
-
-
-  // 🔒 منع السحب من حساب محظور
-const userRecord = await admin.auth().getUser(req.user.uid);
-
-if (userRecord.disabled) {
-  return res.status(403).json({
-    message: 'Your account is suspended due to policy violations. Earnings are frozen.'
-  });
-}
-
-
-  
   try {
     const sellerEmail = req.user.email;
     const { amount } = req.body;
@@ -290,8 +239,7 @@ if (userRecord.disabled) {
     // 🔹 حساب إجمالي المبيعات
     const productsSnap = await db
       .collection('products')
-      .where('sellerUid', '==', sellerUid)
-
+      .where('sellerEmail', '==', sellerEmail)
       .get();
 
     let totalSalesAmount = 0;
@@ -307,8 +255,7 @@ if (userRecord.disabled) {
     let withdrawnAmount = 0;
     const payoutSnap = await db
       .collection('payout_requests')
-      .where('sellerUid', '==', sellerUid)
-
+      .where('sellerEmail', '==', sellerEmail)
       .where('status', 'in', ['pending', 'approved'])
       .get();
 
@@ -327,8 +274,7 @@ if (userRecord.disabled) {
     // 🔹 منع طلبين معلقين
     const pendingSnap = await db
       .collection('payout_requests')
-     .where('sellerUid', '==', sellerUid)
-
+      .where('sellerEmail', '==', sellerEmail)
       .where('status', '==', 'pending')
       .get();
 
@@ -339,14 +285,12 @@ if (userRecord.disabled) {
     }
 
     // 🔹 إنشاء طلب السحب
-   await db.collection('payout_requests').add({
-  sellerUid,          // 🔐 للأمان
-  sellerEmail,        // 💸 للدفع فقط
-  amount,
-  status: 'pending',
-  requestedAt: admin.firestore.FieldValue.serverTimestamp()
-});
-
+    await db.collection('payout_requests').add({
+      sellerEmail,
+      amount,
+      status: 'pending',
+      requestedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
 
     res.json({ success: true });
 
@@ -460,13 +404,10 @@ if (finalStatus !== 'COMPLETED') {
     });
 
     // 7️⃣ Send download link ONCE
- res.json({
-  success: true,
-  downloadUrl: `https://api.creovia.uk/secure-download/${productId}/${orderId}`
-});
-
-
-
+    res.json({
+      success: true,
+      downloadUrl: productData.fileUrl
+    });
 
   } catch (error) {
     console.error('Payment error:', error.message);
@@ -504,125 +445,6 @@ app.get('/download/:productId', async (req, res) => {
   }
 });
 
-/* =========================
-   Secure Download (PROTECTED)
-========================= */
-app.get('/secure-download/:productId/:orderId', async (req, res) => {
-  const { productId, orderId } = req.params;
-
-  try {
-    // تحقق من الدفع
-    const paymentSnap = await db
-      .collection('payments')
-      .where('orderId', '==', orderId)
-      .where('productId', '==', productId)
-      .limit(1)
-      .get();
-
-    if (paymentSnap.empty) {
-      return res.status(403).send('Unauthorized download');
-    }
-
-    // جلب المنتج
-    const productDoc = await db
-      .collection('products')
-      .doc(productId)
-      .get();
-
-    if (!productDoc.exists) {
-      return res.status(404).send('Product not found');
-    }
-
-    const productData = productDoc.data();
-
-    // إعادة التوجيه للملف
-    res.redirect(productData.filePath);
-
-  } catch (error) {
-    console.error('Secure download error:', error);
-    res.status(500).send('Download failed');
-  }
-});
-
-
-
-app.post('/admin/ban-user', async (req, res) => {
-  const { uid, adminKey } = req.body;
-
-  // 🔐 حماية الإدمن
-  if (adminKey !== process.env.ADMIN_SECRET_KEY) {
-    return res.status(403).json({ message: 'Unauthorized' });
-  }
-
-  try {
-    await admin.auth().updateUser(uid, {
-      disabled: true
-    });
-
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to ban user' });
-  }
-});
-
-
-
-
-/* =========================
-   PayPal Webhook
-========================= */
-app.post('/paypal-webhook', express.json(), async (req, res) => {
-
-  try {
-
-    const event = req.body;
-
-    console.log("PayPal webhook received:", event.event_type);
-
-    // فقط عند اكتمال الدفع
-    if (event.event_type === "PAYMENT.CAPTURE.COMPLETED") {
-
-      const capture = event.resource;
-
-      const orderId =
-        capture.supplementary_data?.related_ids?.order_id;
-
-      console.log("Completed order:", orderId);
-
-      if (!orderId) {
-        return res.sendStatus(200);
-      }
-
-      // تحقق هل الدفع مسجل مسبقاً
-      const existing = await db
-        .collection('payments')
-        .where('orderId', '==', orderId)
-        .limit(1)
-        .get();
-
-      if (!existing.empty) {
-        console.log("Payment already recorded");
-        return res.sendStatus(200);
-      }
-
-      console.log("Webhook received valid payment:", orderId);
-
-      // يمكنك هنا إضافة أي منطق إضافي
-
-    }
-
-    res.sendStatus(200);
-
-  } catch (error) {
-
-    console.error("Webhook error:", error.message);
-
-    res.sendStatus(200);
-
-  }
-
-});
-
 
 
 /* =========================
@@ -638,27 +460,6 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
