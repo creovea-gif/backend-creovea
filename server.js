@@ -569,6 +569,63 @@ app.post('/admin/ban-user', async (req, res) => {
 
 
 /* =========================
+   PayPal Webhook
+========================= */
+app.post('/paypal-webhook', express.json(), async (req, res) => {
+
+  try {
+
+    const event = req.body;
+
+    console.log("PayPal webhook received:", event.event_type);
+
+    // فقط عند اكتمال الدفع
+    if (event.event_type === "PAYMENT.CAPTURE.COMPLETED") {
+
+      const capture = event.resource;
+
+      const orderId =
+        capture.supplementary_data?.related_ids?.order_id;
+
+      console.log("Completed order:", orderId);
+
+      if (!orderId) {
+        return res.sendStatus(200);
+      }
+
+      // تحقق هل الدفع مسجل مسبقاً
+      const existing = await db
+        .collection('payments')
+        .where('orderId', '==', orderId)
+        .limit(1)
+        .get();
+
+      if (!existing.empty) {
+        console.log("Payment already recorded");
+        return res.sendStatus(200);
+      }
+
+      console.log("Webhook received valid payment:", orderId);
+
+      // يمكنك هنا إضافة أي منطق إضافي
+
+    }
+
+    res.sendStatus(200);
+
+  } catch (error) {
+
+    console.error("Webhook error:", error.message);
+
+    res.sendStatus(200);
+
+  }
+
+});
+
+
+
+/* =========================
    Health Check
 ========================= */
 app.get('/', (req, res) => {
@@ -581,6 +638,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
