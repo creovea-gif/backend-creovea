@@ -346,63 +346,63 @@ app.post('/record-payment', async (req, res) => {
   const { productId, orderId } = req.body;
 
   try {
-    // 1️⃣ PayPal Token
-    const tokenRes = await axios.post(
-     `${PAYPAL_BASE}/v1/oauth2/token`,
 
+    if (!productId || !orderId) {
+      return res.status(400).json({ message: 'Missing productId or orderId' });
+    }
+
+    // 1️⃣ Get PayPal access token
+    const tokenRes = await axios.post(
+      `${PAYPAL_BASE}/v1/oauth2/token`,
       'grant_type=client_credentials',
       {
         auth: {
-          username: process.env.PAYPAL_CLIENT_ID,
-          password: process.env.PAYPAL_SECRET
+          username: PAYPAL_CLIENT_ID,
+          password: PAYPAL_SECRET
         },
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
       }
     );
 
     const accessToken = tokenRes.data.access_token;
 
-    // 2️⃣ Verify order
+    // 2️⃣ Get order details
     const orderRes = await axios.get(
-     `${PAYPAL_BASE}/v2/checkout/orders/${orderId}`,
-
+      `${PAYPAL_BASE}/v2/checkout/orders/${orderId}`,
       {
-        headers: { Authorization: `Bearer ${accessToken}` }
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
       }
     );
 
-  let finalStatus = orderRes.data.status;
+    const order = orderRes.data;
 
-// إذا لم يكن مكتملًا، حاول capture
+    console.log("PAYPAL STATUS:", order.status);
 
-    finalStatus = captureRes.data.status;
-  } catch (err) {
-    console.warn('Capture failed:', err.response?.data || err.message);
-    // السماح في حال sandbox
-    if (process.env.NODE_ENV !== 'production') {
-      finalStatus = 'COMPLETED';
-    } else {
-      return res.status(400).json({ message: 'Payment not completed' });
+    // 3️⃣ IMPORTANT: must be completed
+    if (order.status !== "COMPLETED") {
+      return res.status(400).json({
+        message: 'Payment not completed',
+        status: order.status
+      });
     }
-  }
-}
 
-if (finalStatus !== 'COMPLETED') {
-  return res.status(400).json({ message: 'Payment not completed' });
-}
-
-
-    // 3️⃣ Get product
+    // 4️⃣ Get product
     const productRef = db.collection('products').doc(productId);
     const productDoc = await productRef.get();
 
     if (!productDoc.exists) {
-      return res.status(404).json({ message: 'Product not found' });
+      return res.status(404).json({
+        message: 'Product not found'
+      });
     }
 
     const productData = productDoc.data();
 
-    // 4️⃣ IMPORTANT: prevent duplicate payment
+    // 5️⃣ Prevent duplicate payment
     const existingPayment = await db
       .collection('payments')
       .where('orderId', '==', orderId)
@@ -412,16 +412,16 @@ if (finalStatus !== 'COMPLETED') {
     if (!existingPayment.empty) {
       return res.json({
         success: true,
-        downloadUrl: productData.fileUrl
+        downloadUrl: `https://api.creovia.uk/secure-download/${productId}/${orderId}`
       });
     }
 
-    // 5️⃣ Increase sales ONCE
+    // 6️⃣ Increase sales count
     await productRef.update({
       salesCount: admin.firestore.FieldValue.increment(1)
     });
 
-    // 6️⃣ Save payment
+    // 7️⃣ Save payment
     await db.collection('payments').add({
       productId,
       orderId,
@@ -431,20 +431,24 @@ if (finalStatus !== 'COMPLETED') {
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
-    // 7️⃣ Send download link ONCE
- res.json({
-  success: true,
-  downloadUrl: `https://api.creovia.uk/secure-download/${productId}/${orderId}`
-});
-
-
-
+    // 8️⃣ Return download link
+    res.json({
+      success: true,
+      downloadUrl: `https://api.creovia.uk/secure-download/${productId}/${orderId}`
+    });
 
   } catch (error) {
-    console.error('Payment error:', error.message);
-    res.status(500).json({ message: 'Payment verification failed' });
+
+    console.error("PAYPAL ERROR:", error.response?.data || error.message);
+
+    res.status(500).json({
+      message: 'Payment verification failed',
+      error: error.response?.data || error.message
+    });
+
   }
 });
+
 
 
 
@@ -530,6 +534,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
