@@ -30,15 +30,35 @@ const PORT = process.env.PORT || 10000;
 /* =========================
    CORS
 ========================= */
+const allowedOrigins = [
+  'http://creovia.uk',
+  'http://www.creovia.uk',
+  'https://creovia.uk',
+  'https://www.creovia.uk'
+];
+
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST'],
+  origin: function(origin, callback) {
+    if(!origin) return callback(null, true); // يسمح بالطلبات من Postman أو curl
+    if(allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  methods: ['GET','POST']
 }));
+
 
 /* =========================
    Body Parsers
 ========================= */
+
 app.use(express.json());
+
+
+
+
 app.use(express.urlencoded({ extended: true }));
 
 /* =========================
@@ -83,13 +103,15 @@ const upload = multer({
 ========================= */
 app.post(
   '/upload',
+  verifyFirebaseToken,
   upload.fields([
     { name: 'file', maxCount: 1 },
     { name: 'preview', maxCount: 1 },
   ]),
   async (req, res) => {
     try {
-      const { name, desc, type, price } = req.body;
+      const { name, desc, type, price, pages } = req.body;
+
 
       if (!name || !desc || !type || !price) {
         return res.status(400).json({
@@ -106,17 +128,20 @@ app.post(
       const fileUrl = req.files.file[0].path;
       const previewImage = req.files.preview[0].path;
 
-     const productData = {
-    name,
-    description: desc,
-    type,
-    price: Number(price),
-    previewImage,
-    fileUrl,
-    salesCount: 0,
-    sellerEmail: req.body.sellerEmail, // ← هذا السطر الجديد
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+   const productData = {
+  name,
+  description: desc,
+  type,
+  price: Number(price),
+  previewImage,
+ filePath: fileUrl,
+
+  salesCount: 0,
+  sellerEmail: req.user.email,
+  pages: pages ? Number(pages) : null, // ✅ اختياري
+  createdAt: admin.firestore.FieldValue.serverTimestamp(),
 };
+
 
 
       const docRef = await db.collection('products').add(productData);
@@ -163,15 +188,16 @@ app.get('/products', async (req, res) => {
 /* =========================
    Seller Dashboard Data
 ========================= */
-app.get('/seller-dashboard', async (req, res) => {
-  try {
-    const { email } = req.query;
-    if (!email) return res.status(400).json({ message: 'Email required' });
+app.get('/seller-dashboard', verifyFirebaseToken, async (req, res) => {
+const sellerEmail = req.user.email;
 
+  try {
+   
     // جلب منتجات البائع
     const snapshot = await db
   .collection('products')
-  .where('sellerEmail', '==', email)
+  .where('sellerEmail', '==', sellerEmail)
+
   .get();
 
 
@@ -195,7 +221,8 @@ app.get('/seller-dashboard', async (req, res) => {
     // جلب مجموع المسحوبات
     let withdrawnAmount = 0;
     const payoutSnap = await db.collection('payout_requests')
-      .where('sellerEmail', '==', email)
+     .where('sellerEmail', '==', sellerEmail)
+
       .where('status', 'in', ['pending','approved'])
       .get();
 
@@ -404,10 +431,13 @@ if (finalStatus !== 'COMPLETED') {
     });
 
     // 7️⃣ Send download link ONCE
-    res.json({
-      success: true,
-      downloadUrl: productData.fileUrl
-    });
+ res.json({
+  success: true,
+  downloadUrl: `https://api.creovia.uk/secure-download/${productId}/${orderId}`
+});
+
+
+
 
   } catch (error) {
     console.error('Payment error:', error.message);
@@ -445,6 +475,45 @@ app.get('/download/:productId', async (req, res) => {
   }
 });
 
+/* =========================
+   Secure Download (PROTECTED)
+========================= */
+app.get('/secure-download/:productId/:orderId', async (req, res) => {
+  const { productId, orderId } = req.params;
+
+  try {
+    // تحقق من الدفع
+    const paymentSnap = await db
+      .collection('payments')
+      .where('orderId', '==', orderId)
+      .where('productId', '==', productId)
+      .limit(1)
+      .get();
+
+    if (paymentSnap.empty) {
+      return res.status(403).send('Unauthorized download');
+    }
+
+    // جلب المنتج
+    const productDoc = await db
+      .collection('products')
+      .doc(productId)
+      .get();
+
+    if (!productDoc.exists) {
+      return res.status(404).send('Product not found');
+    }
+
+    const productData = productDoc.data();
+
+    // إعادة التوجيه للملف
+    res.redirect(productData.filePath);
+
+  } catch (error) {
+    console.error('Secure download error:', error);
+    res.status(500).send('Download failed');
+  }
+});
 
 
 /* =========================
@@ -460,6 +529,22 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
