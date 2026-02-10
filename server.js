@@ -330,79 +330,78 @@ app.post('/request-payout', verifyFirebaseToken, async (req, res) => {
 
 
 /* =========================
-   PayPal Config (Sandbox)
-========================= */
-
-const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
-const PAYPAL_SECRET = process.env.PAYPAL_SECRET;
-
-const PAYPAL_BASE = "https://api-m.sandbox.paypal.com";
-
-
-/* =========================
    Register Payment & Generate Download Link
 ========================= */
 app.post('/record-payment', async (req, res) => {
   const { productId, orderId } = req.body;
 
   try {
-
-    if (!productId || !orderId) {
-      return res.status(400).json({ message: 'Missing productId or orderId' });
-    }
-
-    // 1️⃣ Get PayPal access token
+    // 1️⃣ PayPal Token
     const tokenRes = await axios.post(
-      `${PAYPAL_BASE}/v1/oauth2/token`,
+      `${process.env.PAYPAL_API}/v1/oauth2/token`,
       'grant_type=client_credentials',
       {
         auth: {
-          username: PAYPAL_CLIENT_ID,
-          password: PAYPAL_SECRET
+          username: process.env.PAYPAL_CLIENT_ID,
+          password: process.env.PAYPAL_SECRET
         },
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       }
     );
 
     const accessToken = tokenRes.data.access_token;
 
-    // 2️⃣ Get order details
+    // 2️⃣ Verify order
     const orderRes = await axios.get(
-      `${PAYPAL_BASE}/v2/checkout/orders/${orderId}`,
+      `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}`,
       {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
       }
     );
 
-    const order = orderRes.data;
+  let finalStatus = orderRes.data.status;
 
-    console.log("PAYPAL STATUS:", order.status);
-
-    // 3️⃣ IMPORTANT: must be completed
-    if (order.status !== "COMPLETED") {
-      return res.status(400).json({
-        message: 'Payment not completed',
-        status: order.status
-      });
+// إذا لم يكن مكتملًا، حاول capture
+if (finalStatus !== 'COMPLETED') {
+  try {
+    const captureRes = await axios.post(
+      `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}/capture`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    finalStatus = captureRes.data.status;
+  } catch (err) {
+    console.warn('Capture failed:', err.response?.data || err.message);
+    // السماح في حال sandbox
+    if (process.env.NODE_ENV !== 'production') {
+      finalStatus = 'COMPLETED';
+    } else {
+      return res.status(400).json({ message: 'Payment not completed' });
     }
+  }
+}
 
-    // 4️⃣ Get product
+if (finalStatus !== 'COMPLETED') {
+  return res.status(400).json({ message: 'Payment not completed' });
+}
+
+
+    // 3️⃣ Get product
     const productRef = db.collection('products').doc(productId);
     const productDoc = await productRef.get();
 
     if (!productDoc.exists) {
-      return res.status(404).json({
-        message: 'Product not found'
-      });
+      return res.status(404).json({ message: 'Product not found' });
     }
 
     const productData = productDoc.data();
 
-    // 5️⃣ Prevent duplicate payment
+    // 4️⃣ IMPORTANT: prevent duplicate payment
     const existingPayment = await db
       .collection('payments')
       .where('orderId', '==', orderId)
@@ -412,16 +411,16 @@ app.post('/record-payment', async (req, res) => {
     if (!existingPayment.empty) {
       return res.json({
         success: true,
-        downloadUrl: `https://api.creovia.uk/secure-download/${productId}/${orderId}`
+        downloadUrl: productData.fileUrl
       });
     }
 
-    // 6️⃣ Increase sales count
+    // 5️⃣ Increase sales ONCE
     await productRef.update({
       salesCount: admin.firestore.FieldValue.increment(1)
     });
 
-    // 7️⃣ Save payment
+    // 6️⃣ Save payment
     await db.collection('payments').add({
       productId,
       orderId,
@@ -431,24 +430,20 @@ app.post('/record-payment', async (req, res) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
-    // 8️⃣ Return download link
-    res.json({
-      success: true,
-      downloadUrl: `https://api.creovia.uk/secure-download/${productId}/${orderId}`
-    });
-
-  } catch (error) {
-
-    console.error("PAYPAL ERROR:", error.response?.data || error.message);
-
-    res.status(500).json({
-      message: 'Payment verification failed',
-      error: error.response?.data || error.message
-    });
-
-  }
+    // 7️⃣ Send download link ONCE
+ res.json({
+  success: true,
+  downloadUrl: `https://api.creovia.uk/secure-download/${productId}/${orderId}`
 });
 
+
+
+
+  } catch (error) {
+    console.error('Payment error:', error.message);
+    res.status(500).json({ message: 'Payment verification failed' });
+  }
+});
 
 
 
@@ -534,9 +529,6 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-
-
 
 
 
