@@ -517,69 +517,6 @@ app.get('/secure-download/:productId/:orderId', async (req, res) => {
 
 
 /* =========================
-   Record Payment
-========================= */
-app.post('/record-payment', verifyFirebaseToken, async (req, res) => {
-  try {
-
-    const { productId, orderId } = req.body;
-
-    if (!productId || !orderId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing productId or orderId'
-      });
-    }
-
-    // جلب المنتج
-    const productRef = db.collection('products').doc(productId);
-    const productSnap = await productRef.get();
-
-    if (!productSnap.exists) {
-      return res.status(404).json({
-        success: false,
-        message: 'Product not found'
-      });
-    }
-
-    const product = productSnap.data();
-
-    // زيادة عدد المبيعات
-    await productRef.update({
-      salesCount: admin.firestore.FieldValue.increment(1)
-    });
-
-    // تسجيل عملية الدفع
-    await db.collection('payments').add({
-      productId,
-      orderId,
-      buyerEmail: req.user.email,
-      sellerEmail: product.sellerEmail,
-      price: product.price,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    // إرسال رابط التحميل
-    res.json({
-      success: true,
-      downloadUrl: product.filePath
-    });
-
-  } catch (error) {
-
-    console.error('record-payment error:', error);
-
-    res.status(500).json({
-      success: false,
-      message: 'Payment recording failed'
-    });
-
-  }
-});
-
-
-
-/* =========================
    Health Check
 ========================= */
 app.get('/', (req, res) => {
@@ -592,7 +529,6 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
 
 
 
