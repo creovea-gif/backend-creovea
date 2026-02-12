@@ -54,6 +54,9 @@ app.use(cors({
    Body Parsers
 ========================= */
 
+// Paddle webhook يحتاج raw body
+app.use('/paddle-webhook', express.raw({ type: 'application/json' }));
+
 app.use(express.json());
 
 
@@ -515,7 +518,74 @@ app.get('/secure-download/:productId/:orderId', async (req, res) => {
   }
 });
 
+/* =========================
+   Paddle Webhook
+========================= */
+app.post('/paddle-webhook', async (req, res) => {
+  try {
 
+    const event = JSON.parse(req.body.toString());
+
+    if (event.event_type === "transaction.completed") {
+
+      const transaction = event.data;
+      const orderId = transaction.id;
+      const productId = transaction.custom_data?.productId;
+
+      if (!productId) {
+        console.log("No productId in custom_data");
+        return res.sendStatus(200);
+      }
+
+      const productRef = db.collection('products').doc(productId);
+      const productDoc = await productRef.get();
+
+      if (!productDoc.exists) {
+        console.log("Product not found");
+        return res.sendStatus(200);
+      }
+
+      const productData = productDoc.data();
+
+      // منع التكرار
+      const existingPayment = await db
+        .collection('payments')
+        .where('orderId', '==', orderId)
+        .limit(1)
+        .get();
+
+      if (!existingPayment.empty) {
+        return res.sendStatus(200);
+      }
+
+      // زيادة المبيعات
+      await productRef.update({
+        salesCount: admin.firestore.FieldValue.increment(1)
+      });
+
+      // حفظ الدفع
+      await db.collection('payments').add({
+        productId,
+        orderId,
+        sellerEmail: productData.sellerEmail,
+        price: productData.price,
+        sellerShare: productData.price * 0.7,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      console.log("Payment recorded from Paddle:", orderId);
+    }
+
+    res.sendStatus(200);
+
+  } catch (err) {
+    console.error("Paddle webhook error:", err);
+    res.sendStatus(500);
+  }
+});
+
+
+  
 /* =========================
    Health Check
 ========================= */
@@ -529,6 +599,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
