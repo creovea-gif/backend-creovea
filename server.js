@@ -3,6 +3,11 @@ import admin from "firebase-admin";
 import fetch from "node-fetch";
 import cors from "cors";
 
+import Stripe from "stripe";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+
 /* ================= APP ================= */
 const app = express();
 app.use(cors());
@@ -288,6 +293,107 @@ app.post("/resolve-pending", async (req, res) => {
 });
 
 
+/* ================= STRIPE PAYMENT ================= */
+
+app.post("/create-stripe-session", async (req, res) => {
+  try {
+    const { bookId, userUid } = req.body;
+
+    if (!bookId || !userUid) {
+      return res.status(400).json({ error: "Missing data" });
+    }
+
+    // جلب بيانات الكتاب
+    const bookDoc = await db.collection("books").doc(bookId).get();
+
+    if (!bookDoc.exists) {
+      return res.status(404).json({ error: "Book not found" });
+    }
+
+    const book = bookDoc.data();
+
+    // إنشاء جلسة Stripe
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: book.title,
+              description: book.description || ""
+            },
+            unit_amount: Math.round(book.price * 100)
+          },
+          quantity: 1
+        }
+      ],
+
+      mode: "payment",
+
+      success_url: `https://creovia.uk/success.html?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `https://creovia.uk/cancel.html`,
+
+      metadata: {
+        bookId,
+        userUid
+      }
+    });
+
+    res.json({
+      success: true,
+      url: session.url
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/stripe-success", async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    if (session.payment_status !== "paid") {
+      return res.status(400).json({ error: "Payment not completed" });
+    }
+
+    const bookId = session.metadata.bookId;
+    const userUid = session.metadata.userUid;
+
+    const bookRef = db.collection("books").doc(bookId);
+
+    await db.runTransaction(async (t) => {
+
+      t.update(bookRef, {
+        salesCount: admin.firestore.FieldValue.increment(1)
+      });
+
+      t.set(
+        db.collection("purchases")
+          .doc(userUid)
+          .collection("books")
+          .doc(bookId),
+        { purchasedAt: Date.now() }
+      );
+    });
+
+    const bookSnap = await bookRef.get();
+
+    res.json({
+      success: true,
+      pdfUrl: bookSnap.data().pdf
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /* ================= PURCHASES ================= */
 app.post("/my-purchases", async (req, res) => {
   try {
@@ -481,6 +587,7 @@ app.get("/pending-payments", async (req, res) => {
 });
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Backend running on port", PORT));
+
 
 
 
