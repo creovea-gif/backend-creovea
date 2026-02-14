@@ -25,6 +25,11 @@ const admin = require('firebase-admin');
 const axios = require('axios');
 
 const app = express();
+
+const Stripe = require('stripe');
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+
 const PORT = process.env.PORT || 10000;
 
 /* =========================
@@ -515,6 +520,33 @@ app.get('/secure-download/:productId/:orderId', async (req, res) => {
   }
 });
 
+app.post('/verify-stripe-payment', verifyFirebaseToken, async (req, res) => {
+  try {
+    const { sessionId, productId } = req.body;
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    if (session.payment_status !== 'paid') {
+      return res.json({ success: false });
+    }
+
+    const productRef = db.collection('products').doc(productId);
+
+    await productRef.update({
+      salesCount: admin.firestore.FieldValue.increment(1),
+    });
+
+    const product = (await productRef.get()).data();
+
+    res.json({
+      success: true,
+      downloadUrl: product.filePath
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+});
 
 /* =========================
    Health Check
@@ -523,12 +555,57 @@ app.get('/', (req, res) => {
   res.send('Creovia backend is running ✅');
 });
 
+app.post('/create-stripe-session', verifyFirebaseToken, async (req, res) => {
+  try {
+    const { productId } = req.body;
+
+    const doc = await db.collection('products').doc(productId).get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    const product = doc.data();
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'payment',
+
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: product.name,
+            },
+            unit_amount: Math.round(product.price * 100),
+          },
+          quantity: 1,
+        },
+      ],
+
+      success_url: `https://creovia.uk/success.html?session_id={CHECKOUT_SESSION_ID}&productId=${productId}`,
+
+      cancel_url: `https://creovia.uk/cancel.html`,
+    });
+
+    res.json({ url: session.url });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Stripe session failed' });
+  }
+});
+
+
+
 /* =========================
    Start Server
 ========================= */
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
