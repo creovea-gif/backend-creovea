@@ -179,16 +179,7 @@ app.use(express.json());
 
 app.use(express.urlencoded({ extended: true }));
 
-/* =========================
-   Firebase Admin
-========================= */
-const serviceAccount = JSON.parse(
-  process.env.FIREBASE_SERVICE_ACCOUNT_JSON
-);
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
-const db = admin.firestore();
+
 
 /* =========================
    Cloudinary Config
@@ -678,6 +669,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
