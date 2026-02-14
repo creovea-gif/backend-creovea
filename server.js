@@ -524,6 +524,26 @@ app.post("/request-payout", async (req, res) => {
   }
 });
 
+app.get("/products", async (_, res) => {
+  try {
+    const snap = await db.collection("books").orderBy("createdAt", "desc").get();
+    const books = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    res.json(books);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/books", async (_, res) => {
+  try {
+    const snap = await db.collection("books").orderBy("createdAt", "desc").get();
+    const books = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    res.json({ success: true, books });
+  } catch (e) {
+    res.status(500).json({ success:false, error: e.message });
+  }
+});
+
 
 /* ================= START ================= */
 // حفظ الدفع كـ pending عند approve
@@ -587,6 +607,7 @@ app.get("/pending-payments", async (req, res) => {
 });
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Backend running on port", PORT));
+
 
 
 
