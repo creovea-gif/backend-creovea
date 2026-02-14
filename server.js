@@ -597,33 +597,62 @@ app.get('/secure-download/:productId/:orderId', async (req, res) => {
   }
 });
 
-app.post('/verify-stripe-payment', verifyFirebaseToken, async (req, res) => {
+app.post('/verify-stripe-payment', async (req, res) => {
   try {
     const { sessionId, productId } = req.body;
 
+    if (!sessionId || !productId) {
+      return res.status(400).json({ success: false, message: "Missing sessionId or productId" });
+    }
+
+    // تحقق إذا كان الدفع موجود مسبقًا في قاعدة البيانات
+    const existingPayment = await db
+      .collection('payments')
+      .where('sessionId', '==', sessionId)
+      .limit(1)
+      .get();
+
+    if (!existingPayment.empty) {
+      // إذا تم الدفع مسبقًا، فقط أرسل رابط التحميل دون زيادة المبيعات
+      const product = await db.collection('products').doc(productId).get();
+      if (!product.exists) return res.status(404).json({ success: false, message: "Product not found" });
+
+      return res.json({ success: true, downloadUrl: product.data().filePath });
+    }
+
+    // جلب جلسة Stripe
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
     if (session.payment_status !== 'paid') {
-      return res.json({ success: false });
+      return res.status(400).json({ success: false, message: "Payment not completed" });
     }
 
+    // زيادة المبيعات مرة واحدة فقط
     const productRef = db.collection('products').doc(productId);
-
     await productRef.update({
       salesCount: admin.firestore.FieldValue.increment(1),
     });
 
-    const product = (await productRef.get()).data();
+    const product = await productRef.get();
 
-    res.json({
-      success: true,
-      downloadUrl: product.filePath
+    // حفظ عملية الدفع في قاعدة البيانات
+    await db.collection('payments').add({
+      sessionId,
+      productId,
+      buyerEmail: session.customer_email,
+      price: product.data().price,
+      sellerEmail: product.data().sellerEmail,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    res.json({ success: true, downloadUrl: product.data().filePath });
+
   } catch (err) {
-    res.status(500).json({ success: false });
+    console.error('Stripe verification error:', err);
+    res.status(500).json({ success: false, message: "Verification failed" });
   }
 });
+
 
 /* =========================
    Health Check
@@ -642,6 +671,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
