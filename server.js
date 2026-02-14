@@ -36,6 +36,13 @@ const allowedOrigins = [
   'https://www.creovia.uk'
 ];
 
+app.options('*', cors({
+  origin: allowedOrigins,
+  methods: ['GET','POST','OPTIONS'],
+  credentials: true
+}));
+
+
 app.use(cors({
   origin: function(origin, callback) {
     if(!origin) return callback(null, true); // يسمح بالطلبات من Postman أو curl
@@ -671,6 +678,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
