@@ -26,6 +26,45 @@ const axios = require('axios');
 
 const app = express();
 
+/* =========================
+   CORS
+========================= */
+const allowedOrigins = [
+  'http://creovia.uk',
+  'http://www.creovia.uk',
+  'https://creovia.uk',
+  'https://www.creovia.uk'
+];
+
+app.use(cors({
+  origin: function(origin, callback) {
+    if(!origin) return callback(null, true); // يسمح بالطلبات من Postman أو curl
+    if(allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  methods: ['GET','POST'],
+  credentials: true
+}));
+
+/* =========================
+   Body Parsers
+========================= */
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+/* =========================
+   Firebase Admin
+========================= */
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+const db = admin.firestore();
+
+
 const Stripe = require('stripe');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -632,6 +671,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
