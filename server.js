@@ -1,612 +1,568 @@
-import express from "express";
-import admin from "firebase-admin";
-import fetch from "node-fetch";
-import cors from "cors";
+async function verifyFirebaseToken(req, res, next) {
+  const authHeader = req.headers.authorization;
 
-import Stripe from "stripe";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
-
-/* ================= APP ================= */
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: "10mb" }));
-
-/* ================= FIREBASE ================= */
-admin.initializeApp({
-  credential: admin.credential.cert(
-    JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
-  )
-});
-const db = admin.firestore();
-
-/* ================= PI ================= */
-const PI_API_KEY = process.env.PI_API_KEY;
-const PI_API_URL = "https://api.minepi.com/v2";
-
-/* ================= ROOT ================= */
-app.get("/", (_, res) => res.send("Backend running"));
-
-/* ================= BOOKS ================= */
-app.get("/books", async (_, res) => {
-  try {
-    const snap = await db.collection("books").orderBy("createdAt", "desc").get();
-    const books = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    res.json({ success: true, books });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'Unauthorized' });
   }
-});
 
-/* ================= SINGLE BOOK ================= */
-app.get("/book/:id", async (req, res) => {
+  const token = authHeader.split('Bearer ')[1];
+
   try {
-    const bookId = req.params.id;
-    const doc = await db.collection("books").doc(bookId).get();
-
-    if (!doc.exists) {
-      return res.status(404).json({ success: false, error: "Book not found" });
-    }
-
-    res.json({ success: true, book: { id: doc.id, ...doc.data() } });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
-
-
-/* ================= SAVE BOOK ================= */
-app.post("/save-book", async (req, res) => {
-  try {
-    const {
-      title, price, description, language, pageCount,
-      cover, pdf, owner, ownerUid
-    } = req.body;
-
-    if (!title || !price || !cover || !pdf || !owner || !ownerUid) {
-      return res.status(400).json({ error: "Missing data" });
-    }
-
-    const doc = await db.collection("books").add({
-      title,
-      price: Number(price),
-      description: description || "",
-      language: language || "",
-      pageCount: pageCount || "Unknown",
-      cover,
-      pdf,
-      owner,
-      ownerUid,
-      salesCount: 0,
-      createdAt: Date.now()
-    });
-
-    res.json({ success: true, bookId: doc.id });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-/* ================= RATINGS ================= */
-app.post("/rate-book", async (req, res) => {
-  try {
-    const { bookId, voteType, userUid } = req.body;
-    if (!bookId || !voteType || !userUid) {
-      return res.status(400).json({ error: "Missing data" });
-    }
-
-    await db
-      .collection("ratings")
-      .doc(bookId)
-      .collection("votes")
-      .doc(userUid)
-      .set({ vote: voteType, votedAt: Date.now() });
-
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post("/book-ratings", async (req, res) => {
-  try {
-    const { bookId, userUid } = req.body;
-    const snap = await db
-      .collection("ratings")
-      .doc(bookId)
-      .collection("votes")
-      .get();
-
-    let likes = 0, dislikes = 0, userVote = null;
-    snap.forEach(d => {
-      if (d.data().vote === "like") likes++;
-      if (d.data().vote === "dislike") dislikes++;
-      if (d.id === userUid) userVote = d.data().vote;
-    });
-
-    res.json({ success: true, likes, dislikes, userVote });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-/* ================= PAYMENTS ================= */
-
-// 🔹 approve-payment (بدون أي منطق إضافي)
-app.post("/approve-payment", async (req, res) => {
-  try {
-    const { paymentId } = req.body;
-    if (!paymentId) {
-      return res.status(400).json({ error: "Missing paymentId" });
-    }
-
-    const r = await fetch(`${PI_API_URL}/payments/${paymentId}/approve`, {
-      method: "POST",
-      headers: { Authorization: `Key ${PI_API_KEY}` }
-    });
-
-    if (!r.ok) throw new Error(await r.text());
-    res.json({ success: true });
-
-  } catch (e) {
-    console.error("Approve error:", e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-
-// 🔹 complete-payment (النسخة الصحيحة)
-app.post("/complete-payment", async (req, res) => {
-  try {
-    const { paymentId, txid } = req.body;
-
-    if (!paymentId || !txid) {
-      return res.status(400).json({ error: "Missing payment data" });
-    }
-
-    // 1️⃣ جلب بيانات الدفع من Pi
-    const paymentRes = await fetch(`${PI_API_URL}/payments/${paymentId}`, {
-      method: "GET",
-      headers: { Authorization: `Key ${PI_API_KEY}` }
-    });
-
-    if (!paymentRes.ok) {
-      throw new Error(await paymentRes.text());
-    }
-
-    const paymentData = await paymentRes.json();
-
-    // 2️⃣ استخراج البيانات من metadata (مصدر موثوق)
-    const bookId = paymentData.metadata?.bookId;
-    const userUid = paymentData.metadata?.userUid;
-
-    if (!bookId || !userUid) {
-      throw new Error("Missing metadata from Pi payment");
-    }
-
-    // 3️⃣ إكمال الدفع
-    const completeRes = await fetch(`${PI_API_URL}/payments/${paymentId}/complete`, {
-      method: "POST",
-      headers: {
-        Authorization: `Key ${PI_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ txid })
-    });
-
-    if (!completeRes.ok) {
-      throw new Error(await completeRes.text());
-    }
-
-    // 4️⃣ تحديث Firestore (transaction)
-    const bookRef = db.collection("books").doc(bookId);
-
-    await db.runTransaction(async (t) => {
-      t.update(bookRef, {
-        salesCount: admin.firestore.FieldValue.increment(1)
-      });
-
-      t.set(
-        db.collection("purchases")
-          .doc(userUid)
-          .collection("books")
-          .doc(bookId),
-        { purchasedAt: Date.now() }
-      );
-    });
-
-    // 5️⃣ إرسال رابط الكتاب
-    const bookSnap = await bookRef.get();
-    res.json({ success: true, pdfUrl: bookSnap.data().pdf });
-
-  } catch (e) {
-    console.error("Complete payment error:", e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-
-// 🔹 معالجة الدفعات المعلقة (اختياري – لكنه آمن)
-async function handlePendingPayment(paymentId) {
-  try {
-    const r = await fetch(`${PI_API_URL}/payments/${paymentId}`, {
-      method: "GET",
-      headers: { Authorization: `Key ${PI_API_KEY}` }
-    });
-
-    if (!r.ok) throw new Error(await r.text());
-    const paymentData = await r.json();
-
-    if (!paymentData.txid) return;
-
-    const bookId = paymentData.metadata?.bookId;
-    const userUid = paymentData.metadata?.userUid;
-
-    if (!bookId || !userUid) return;
-
-    await fetch(`${PI_API_URL}/payments/${paymentId}/complete`, {
-      method: "POST",
-      headers: {
-        Authorization: `Key ${PI_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ txid: paymentData.txid })
-    });
-
-    const bookRef = db.collection("books").doc(bookId);
-
-    await db.runTransaction(async (t) => {
-      t.update(bookRef, {
-        salesCount: admin.firestore.FieldValue.increment(1)
-      });
-
-      t.set(
-        db.collection("purchases")
-          .doc(userUid)
-          .collection("books")
-          .doc(bookId),
-        { purchasedAt: Date.now() }
-      );
-    });
-
-    console.log("✅ Pending payment resolved:", paymentId);
-
-  } catch (e) {
-    console.log("⚠️ Pending resolve failed:", e.message);
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.user = decoded; // email, uid
+    next();
+  } catch (err) {
+    return res.status(401).json({ message: 'Invalid token' });
   }
 }
 
-app.post("/resolve-pending", async (req, res) => {
-  try {
-    const { paymentId } = req.body;
-    if (!paymentId) {
-      return res.status(400).json({ error: "Missing paymentId" });
+const express = require('express');
+const multer = require('multer');
+const cors = require('cors');
+const { v2: cloudinary } = require('cloudinary');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const admin = require('firebase-admin');
+const axios = require('axios');
+
+const app = express();
+const PORT = process.env.PORT || 10000;
+
+/* =========================
+   CORS
+========================= */
+const allowedOrigins = [
+  'http://creovia.uk',
+  'http://www.creovia.uk',
+  'https://creovia.uk',
+  'https://www.creovia.uk'
+];
+
+app.use(cors({
+  origin: function(origin, callback) {
+    if(!origin) return callback(null, true); // يسمح بالطلبات من Postman أو curl
+    if(allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
     }
+    return callback(null, true);
+  },
+  methods: ['GET','POST']
+}));
 
-    await handlePendingPayment(paymentId);
-    res.json({ success: true });
 
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+/* =========================
+   Body Parsers
+========================= */
+
+app.use(express.json());
+
+
+
+
+app.use(express.urlencoded({ extended: true }));
+
+/* =========================
+   Firebase Admin
+========================= */
+const serviceAccount = JSON.parse(
+  process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+);
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+const db = admin.firestore();
+
+/* =========================
+   Cloudinary Config
+========================= */
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+/* =========================
+   Multer + Cloudinary Storage
+========================= */
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => ({
+    folder: 'creovia_products',
+    resource_type: 'auto',
+    public_id: `${Date.now()}-${file.originalname}`,
+  }),
+});
 
-/* ================= STRIPE PAYMENT ================= */
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+});
 
-app.post("/create-stripe-session", async (req, res) => {
-  try {
-    const { bookId, userUid } = req.body;
+/* =========================
+   Upload Product
+========================= */
+app.post(
+  '/upload',
+  verifyFirebaseToken,
+  upload.fields([
+    { name: 'file', maxCount: 1 },
+    { name: 'preview', maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const { name, desc, type, price, pages } = req.body;
 
-    if (!bookId || !userUid) {
-      return res.status(400).json({ error: "Missing data" });
-    }
 
-    // جلب بيانات الكتاب
-    const bookDoc = await db.collection("books").doc(bookId).get();
-
-    if (!bookDoc.exists) {
-      return res.status(404).json({ error: "Book not found" });
-    }
-
-    const book = bookDoc.data();
-
-    // إنشاء جلسة Stripe
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card"],
-
-      line_items: [
-        {
-          price_data: {
-            currency: "usd",
-            product_data: {
-              name: book.title,
-              description: book.description || ""
-            },
-            unit_amount: Math.round(book.price * 100)
-          },
-          quantity: 1
-        }
-      ],
-
-      mode: "payment",
-
-      success_url: `https://creovia.uk/success.html?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `https://creovia.uk/cancel.html`,
-
-      metadata: {
-        bookId,
-        userUid
+      if (!name || !desc || !type || !price) {
+        return res.status(400).json({
+          message: 'Missing required fields',
+        });
       }
-    });
 
-    res.json({
-      success: true,
-      url: session.url
-    });
+      if (!req.files?.file || !req.files?.preview) {
+        return res.status(400).json({
+          message: 'File or preview image missing',
+        });
+      }
 
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
+      const fileUrl = req.files.file[0].path;
+      const previewImage = req.files.preview[0].path;
 
-app.post("/stripe-success", async (req, res) => {
-  try {
-    const { sessionId } = req.body;
+   const productData = {
+  name,
+  description: desc,
+  type,
+  price: Number(price),
+  previewImage,
+ filePath: fileUrl,
 
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+  salesCount: 0,
+  sellerEmail: req.user.email,
+  pages: pages ? Number(pages) : null, // ✅ اختياري
+  createdAt: admin.firestore.FieldValue.serverTimestamp(),
+};
 
-    if (session.payment_status !== "paid") {
-      return res.status(400).json({ error: "Payment not completed" });
-    }
 
-    const bookId = session.metadata.bookId;
-    const userUid = session.metadata.userUid;
 
-    const bookRef = db.collection("books").doc(bookId);
+      const docRef = await db.collection('products').add(productData);
 
-    await db.runTransaction(async (t) => {
-
-      t.update(bookRef, {
-        salesCount: admin.firestore.FieldValue.increment(1)
+      res.json({
+        message: 'Product uploaded successfully!',
+        product: { id: docRef.id, ...productData },
       });
+    } catch (error) {
+      console.error('Upload error:', error);
+      res.status(500).json({
+        message: 'Upload failed',
+        error: error.message,
+      });
+    }
+  }
+);
 
-      t.set(
-        db.collection("purchases")
-          .doc(userUid)
-          .collection("books")
-          .doc(bookId),
-        { purchasedAt: Date.now() }
-      );
+
+/* =========================
+   Get All Products
+========================= */
+app.get('/products', async (req, res) => {
+  try {
+    const snapshot = await db
+      .collection('products')
+      .orderBy('createdAt', 'desc') // ترتيب من الأحدث
+      .get();
+
+    const products = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.json(products);
+  } catch (error) {
+    console.error('Fetch products error:', error);
+    res.status(500).json({
+      message: 'Failed to fetch products',
+    });
+  }
+});
+
+/* =========================
+   Seller Dashboard Data
+========================= */
+app.get('/seller-dashboard', verifyFirebaseToken, async (req, res) => {
+const sellerEmail = req.user.email;
+
+  try {
+   
+    // جلب منتجات البائع
+    const snapshot = await db
+  .collection('products')
+  .where('sellerEmail', '==', sellerEmail)
+
+  .get();
+
+
+    let productsCount = snapshot.size;
+    let totalDownloads = 0;
+    let totalSalesAmount = 0;
+    const products = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const sales = data.salesCount || 0;
+      const price = data.price || 0;
+      totalDownloads += sales;
+      totalSalesAmount += sales * price;
+      products.push({
+        name: data.name,
+        sales
+      });
     });
 
-    const bookSnap = await bookRef.get();
+    // جلب مجموع المسحوبات
+    let withdrawnAmount = 0;
+    const payoutSnap = await db.collection('payout_requests')
+     .where('sellerEmail', '==', sellerEmail)
+
+      .where('status', 'in', ['pending','approved'])
+      .get();
+
+    payoutSnap.forEach(doc => {
+      withdrawnAmount += doc.data().amount || 0;
+    });
+
+    const grossEarnings = totalSalesAmount * 0.7;
+    const sellerEarnings = Math.max(grossEarnings - withdrawnAmount, 0);
 
     res.json({
-      success: true,
-      pdfUrl: bookSnap.data().pdf
+      productsCount,
+      totalDownloads,
+      sellerEarnings,
+      products
     });
 
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    res.status(500).json({ message: 'Dashboard fetch failed' });
   }
 });
 
-/* ================= PURCHASES ================= */
-app.post("/my-purchases", async (req, res) => {
-  try {
-    const { userUid } = req.body;
-    const snap = await db
-      .collection("purchases")
-      .doc(userUid)
-      .collection("books")
-      .get();
 
-    const books = [];
-    for (const d of snap.docs) {
-      const b = await db.collection("books").doc(d.id).get();
-      if (b.exists) books.push({ id: b.id, ...b.data() });
+/* =========================
+   Request Payout
+========================= */
+app.post('/request-payout', verifyFirebaseToken, async (req, res) => {
+  try {
+    const sellerEmail = req.user.email;
+    const { amount } = req.body;
+
+    if (!amount) {
+      return res.status(400).json({ message: 'Missing amount' });
     }
 
-    res.json({ success: true, books });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
+    if (amount < 50) {
+      return res.status(400).json({ message: 'Minimum payout is $50' });
+    }
 
-/* ================= GET PDF ================= */
-app.post("/get-pdf", async (req, res) => {
-  try {
-    const { bookId, userUid } = req.body;
-
-    const p = await db
-      .collection("purchases")
-      .doc(userUid)
-      .collection("books")
-      .doc(bookId)
+    // 🔹 حساب إجمالي المبيعات
+    const productsSnap = await db
+      .collection('products')
+      .where('sellerEmail', '==', sellerEmail)
       .get();
 
-    if (!p.exists) return res.status(403).json({ error: "Not purchased" });
+    let totalSalesAmount = 0;
 
-    const book = await db.collection("books").doc(bookId).get();
-    res.json({ success: true, pdfUrl: book.data().pdf });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
+    productsSnap.forEach(doc => {
+      const data = doc.data();
+      totalSalesAmount += (data.salesCount || 0) * (data.price || 0);
+    });
 
-/* ================= SALES ================= */
-app.post("/my-sales", async (req, res) => {
-  try {
-    const { username } = req.body;
-    const snap = await db.collection("books").where("owner", "==", username).get();
-    const books = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    res.json({ success: true, books });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
+    const grossEarnings = totalSalesAmount * 0.7;
 
-/* ================= RESET SALES ================= */
-app.post("/reset-sales", async (req, res) => {
-  try {
-    const { username } = req.body;
-    const snap = await db.collection("books").where("owner", "==", username).get();
-    const batch = db.batch();
-    snap.forEach(d => batch.update(d.ref, { salesCount: 0 }));
-    await batch.commit();
+    // 🔹 حساب المسحوبات السابقة
+    let withdrawnAmount = 0;
+    const payoutSnap = await db
+      .collection('payout_requests')
+      .where('sellerEmail', '==', sellerEmail)
+      .where('status', 'in', ['pending', 'approved'])
+      .get();
+
+    payoutSnap.forEach(doc => {
+      withdrawnAmount += doc.data().amount || 0;
+    });
+
+    const availableBalance = grossEarnings - withdrawnAmount;
+
+    if (availableBalance < amount) {
+      return res.status(400).json({
+        message: `Insufficient balance. Available: $${availableBalance.toFixed(2)}`
+      });
+    }
+
+    // 🔹 منع طلبين معلقين
+    const pendingSnap = await db
+      .collection('payout_requests')
+      .where('sellerEmail', '==', sellerEmail)
+      .where('status', '==', 'pending')
+      .get();
+
+    if (!pendingSnap.empty) {
+      return res.status(400).json({
+        message: 'You already have a pending payout request'
+      });
+    }
+
+    // 🔹 إنشاء طلب السحب
+    await db.collection('payout_requests').add({
+      sellerEmail,
+      amount,
+      status: 'pending',
+      requestedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
     res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+
+  } catch (error) {
+    console.error('Payout error:', error);
+    res.status(500).json({ message: 'Payout request failed' });
   }
 });
-/* ================= PAYOUT REQUEST ================= */
-app.post("/request-payout", async (req, res) => {
+
+
+
+/* =========================
+   Register Payment & Generate Download Link
+========================= */
+app.post('/record-payment', async (req, res) => {
+  const { productId, orderId } = req.body;
+
   try {
-    const { username, walletAddress } = req.body;
-    if (!username || !walletAddress) {
-      return res.status(400).json({ error: "Missing data" });
+    // 1️⃣ PayPal Token
+    const tokenRes = await axios.post(
+      `${process.env.PAYPAL_API}/v1/oauth2/token`,
+      'grant_type=client_credentials',
+      {
+        auth: {
+          username: process.env.PAYPAL_CLIENT_ID,
+          password: process.env.PAYPAL_SECRET
+        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      }
+    );
+
+    const accessToken = tokenRes.data.access_token;
+
+    // 2️⃣ Verify order
+    const orderRes = await axios.get(
+      `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      }
+    );
+
+  let finalStatus = orderRes.data.status;
+
+// إذا لم يكن مكتملًا، حاول capture
+if (finalStatus !== 'COMPLETED') {
+  try {
+    const captureRes = await axios.post(
+      `${process.env.PAYPAL_API}/v2/checkout/orders/${orderId}/capture`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    finalStatus = captureRes.data.status;
+  } catch (err) {
+    console.warn('Capture failed:', err.response?.data || err.message);
+    // السماح في حال sandbox
+    if (process.env.NODE_ENV !== 'production') {
+      finalStatus = 'COMPLETED';
+    } else {
+      return res.status(400).json({ message: 'Payment not completed' });
+    }
+  }
+}
+
+if (finalStatus !== 'COMPLETED') {
+  return res.status(400).json({ message: 'Payment not completed' });
+}
+
+
+    // 3️⃣ Get product
+    const productRef = db.collection('products').doc(productId);
+    const productDoc = await productRef.get();
+
+    if (!productDoc.exists) {
+      return res.status(404).json({ message: 'Product not found' });
     }
 
-    const userRef = db.collection("users").doc(username);
-    const userSnap = await userRef.get();
+    const productData = productDoc.data();
 
-    // 🔹 جلب كتب المستخدم
-    const booksSnap = await db.collection("books")
-      .where("owner", "==", username)
+    // 4️⃣ IMPORTANT: prevent duplicate payment
+    const existingPayment = await db
+      .collection('payments')
+      .where('orderId', '==', orderId)
+      .limit(1)
       .get();
 
-    let totalEarnings = 0;
-    const batch = db.batch();
-
-    booksSnap.forEach(doc => {
-      const book = doc.data();
-      const sales = book.salesCount || 0;
-      const profit = sales * book.price * 0.7;
-      totalEarnings += profit;
-
-      // تصفير المبيعات
-      batch.update(doc.ref, { salesCount: 0 });
-    });
-
-    if (totalEarnings < 5) {
-      return res.status(400).json({ error: "Minimum payout is 5 Pi" });
+    if (!existingPayment.empty) {
+      return res.json({
+        success: true,
+        downloadUrl: productData.fileUrl
+      });
     }
 
-    // 🔹 إنشاء طلب payout
-    await db.collection("payout_requests").add({
-      username,
-      walletAddress,
-      amount: Number(totalEarnings.toFixed(2)),
-      status: "pending",
-      requestedAt: Date.now(),
-      approvedAt: null
+    // 5️⃣ Increase sales ONCE
+    await productRef.update({
+      salesCount: admin.firestore.FieldValue.increment(1)
     });
 
-    // 🔹 تحديث المستخدم فقط لإظهار آخر طلب
-    await userRef.set({
-      lastPayoutAt: Date.now(),
-      lastPayoutAmount: Number(totalEarnings.toFixed(2))
-    }, { merge: true });
-
-    await batch.commit();
-
-    res.json({
-      success: true,
-      amount: Number(totalEarnings.toFixed(2))
+    // 6️⃣ Save payment
+    await db.collection('payments').add({
+      productId,
+      orderId,
+      sellerEmail: productData.sellerEmail,
+      price: productData.price,
+      sellerShare: productData.price * 0.7,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
-  } catch (err) {
-    console.error("Payout error:", err);
-    res.status(500).json({ error: "Server error" });
+    // 7️⃣ Send download link ONCE
+ res.json({
+  success: true,
+  downloadUrl: `https://api.creovia.uk/secure-download/${productId}/${orderId}`
+});
+
+
+
+
+  } catch (error) {
+    console.error('Payment error:', error.message);
+    res.status(500).json({ message: 'Payment verification failed' });
   }
 });
 
-app.get("/products", async (_, res) => {
+
+
+/* =========================
+   Register Download / Increase Sales Count (القديم - يمكن إزالته لاحقاً إذا أردت حماية كاملة)
+========================= */
+app.get('/download/:productId', async (req, res) => {
+  const { productId } = req.params;
+
   try {
-    const snap = await db.collection("books").orderBy("createdAt", "desc").get();
-    const books = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    res.json(books);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+    const productRef = db.collection('products').doc(productId);
+    const productDoc = await productRef.get();
+
+    if (!productDoc.exists) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    // زيادة عدد المبيعات (يمكن تعطيل هذا إذا أردت أن الدفع فقط يزيد المبيعات)
+  
+
+    const productData = productDoc.data();
+    const downloadUrl = productData.fileUrl;
+
+
+    res.redirect(downloadUrl);
+  } catch (error) {
+    console.error('Download tracking error:', error);
+    res.status(500).json({ message: 'Server error during download tracking' });
   }
 });
 
-app.get("/books", async (_, res) => {
+/* =========================
+   Secure Download (PROTECTED)
+========================= */
+app.get('/secure-download/:productId/:orderId', async (req, res) => {
+  const { productId, orderId } = req.params;
+
   try {
-    const snap = await db.collection("books").orderBy("createdAt", "desc").get();
-    const books = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    res.json({ success: true, books });
-  } catch (e) {
-    res.status(500).json({ success:false, error: e.message });
+    // تحقق من الدفع
+    const paymentSnap = await db
+      .collection('payments')
+      .where('orderId', '==', orderId)
+      .where('productId', '==', productId)
+      .limit(1)
+      .get();
+
+    if (paymentSnap.empty) {
+      return res.status(403).send('Unauthorized download');
+    }
+
+    // جلب المنتج
+    const productDoc = await db
+      .collection('products')
+      .doc(productId)
+      .get();
+
+    if (!productDoc.exists) {
+      return res.status(404).send('Product not found');
+    }
+
+    const productData = productDoc.data();
+
+    // إعادة التوجيه للملف
+    res.redirect(productData.filePath);
+
+  } catch (error) {
+    console.error('Secure download error:', error);
+    res.status(500).send('Download failed');
   }
 });
 
 
-/* ================= START ================= */
-// حفظ الدفع كـ pending عند approve
-app.post("/approve-payment", async (req, res) => {
-  const { paymentId, bookId, userUid } = req.body;
-  if (!paymentId || !bookId || !userUid || !db) return res.status(400).json({ error: "missing data" });
-  try {
-    // حفظ الدفع المعلق في مجموعة جديدة
-    await db.collection("pendingPayments").doc(paymentId).set({ bookId, userUid, status: "pending", createdAt: Date.now() });
-
-    const response = await fetch(`https://api.minepi.com/v2/payments/${paymentId}/approve`, {
-      method: "POST",
-      headers: { Authorization: `Key ${PI_API_KEY}` }
-    });
-    if (!response.ok) throw new Error(await response.text());
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+/* =========================
+   Health Check
+========================= */
+app.get('/', (req, res) => {
+  res.send('Creovia backend is running ✅');
 });
 
-// إكمال الدفع (مع حذف من pending)
-app.post("/complete-payment", async (req, res) => {
-  const { paymentId, txid, bookId, userUid } = req.body;
-  if (!paymentId || !txid || !bookId || !userUid || !db) return res.status(400).json({ error: "missing data" });
-  try {
-    const response = await fetch(`https://api.minepi.com/v2/payments/${paymentId}/complete`, {
-      method: "POST",
-      headers: { Authorization: `Key ${PI_API_KEY}` },
-      body: JSON.stringify({ txid })
-    });
-    if (!response.ok) throw new Error(await response.text());
-
-    const bookRef = db.collection("books").doc(bookId);
-    await db.runTransaction(async (t) => {
-      t.update(bookRef, { salesCount: admin.firestore.FieldValue.increment(1) });
-      t.set(db.collection("purchases").doc(userUid).collection("books").doc(bookId), { purchasedAt: Date.now() });
-    });
-
-    // حذف الدفع من المعلقين بعد إكماله
-    await db.collection("pendingPayments").doc(paymentId).delete();
-
-    const bookSnap = await bookRef.get();
-    res.json({ success: true, pdfUrl: bookSnap.data().pdf });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+/* =========================
+   Start Server
+========================= */
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
 
-// جلب الدفعات المعلقة للمستخدم (للحل التلقائي)
-app.get("/pending-payments", async (req, res) => {
-  const { userUid } = req.query;
-  if (!userUid || !db) return res.status(400).json({ success: false, error: "missing userUid" });
-  try {
-    const snap = await db.collection("pendingPayments").where("userUid", "==", userUid).get();
-    const pendingPayments = snap.docs.map(doc => ({ id: doc.id, bookId: doc.data().bookId }));
-    res.json({ success: true, pendingPayments });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Backend running on port", PORT));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
