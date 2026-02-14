@@ -29,6 +29,73 @@ const app = express();
 const Stripe = require('stripe');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
+/* =========================
+   Create Stripe Checkout Session
+========================= */
+app.post('/create-stripe-session', verifyFirebaseToken, async (req, res) => {
+
+  try {
+
+    const { productId } = req.body;
+
+    if (!productId) {
+      return res.status(400).json({ message: "Missing productId" });
+    }
+
+    // جلب المنتج من Firestore
+    const doc = await db.collection('products').doc(productId).get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    const product = doc.data();
+
+    // إنشاء Stripe session
+    const session = await stripe.checkout.sessions.create({
+
+      payment_method_types: ['card'],
+
+      mode: 'payment',
+
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: product.name,
+            },
+            unit_amount: Math.round(product.price * 100),
+          },
+          quantity: 1,
+        },
+      ],
+
+      success_url: `https://creovia.uk/success.html?productId=${productId}&session_id={CHECKOUT_SESSION_ID}`,
+
+      cancel_url: `https://creovia.uk/cancel.html`,
+
+      metadata: {
+        productId: productId,
+        buyerEmail: req.user.email
+      }
+
+    });
+
+    res.json({ url: session.url });
+
+  } catch (error) {
+
+    console.error("Stripe session error:", error);
+
+    res.status(500).json({
+      message: "Stripe session failed",
+      error: error.message
+    });
+
+  }
+
+});
 
 const PORT = process.env.PORT || 10000;
 
@@ -605,6 +672,7 @@ app.post('/create-stripe-session', verifyFirebaseToken, async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
