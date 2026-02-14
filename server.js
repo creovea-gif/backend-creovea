@@ -622,47 +622,7 @@ app.get('/', (req, res) => {
   res.send('Creovia backend is running ✅');
 });
 
-app.post('/create-stripe-session', verifyFirebaseToken, async (req, res) => {
-  try {
-    const { productId } = req.body;
 
-    const doc = await db.collection('products').doc(productId).get();
-
-    if (!doc.exists) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
-
-    const product = doc.data();
-
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      mode: 'payment',
-
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: product.name,
-            },
-            unit_amount: Math.round(product.price * 100),
-          },
-          quantity: 1,
-        },
-      ],
-
-      success_url: `https://creovia.uk/success.html?session_id={CHECKOUT_SESSION_ID}&productId=${productId}`,
-
-      cancel_url: `https://creovia.uk/cancel.html`,
-    });
-
-    res.json({ url: session.url });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Stripe session failed' });
-  }
-});
 
 
 
@@ -672,6 +632,7 @@ app.post('/create-stripe-session', verifyFirebaseToken, async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
