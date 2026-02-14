@@ -23,7 +23,7 @@ const { v2: cloudinary } = require('cloudinary');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const admin = require('firebase-admin');
 const axios = require('axios');
-
+const Stripe = require('stripe');
 const app = express();
 
 /* =========================
@@ -72,7 +72,6 @@ admin.initializeApp({
 const db = admin.firestore();
 
 
-const Stripe = require('stripe');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 /* =========================
@@ -145,39 +144,13 @@ app.post('/create-stripe-session', verifyFirebaseToken, async (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 
-/* =========================
-   CORS
-========================= */
-const allowedOrigins = [
-  'http://creovia.uk',
-  'http://www.creovia.uk',
-  'https://creovia.uk',
-  'https://www.creovia.uk'
-];
 
-app.use(cors({
-  origin: function(origin, callback) {
-    if(!origin) return callback(null, true); // يسمح بالطلبات من Postman أو curl
-    if(allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  },
-  methods: ['GET','POST']
-}));
 
 
 /* =========================
    Body Parsers
 ========================= */
 
-app.use(express.json());
-
-
-
-
-app.use(express.urlencoded({ extended: true }));
 
 
 
@@ -669,6 +642,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
