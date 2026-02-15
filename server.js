@@ -250,8 +250,7 @@ app.get('/products', async (req, res) => {
   try {
     const snapshot = await db
       .collection('products')
-      .orderBy('salesCount', 'desc') // الأكثر مبيعاً أولاً
-      .orderBy('createdAt', 'desc') // في حالة التساوي يظهر الأحدث
+      .orderBy('createdAt', 'desc') // ترتيب من الأحدث
       .get();
 
 
@@ -673,6 +672,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
